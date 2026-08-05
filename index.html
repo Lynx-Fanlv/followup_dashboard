@@ -1503,15 +1503,15 @@ async function doSnapshot(desen) {
     const records = desen ? STORE.records.map(r => window.Pipeline.desensitize(r)).map(cleanRec)
                            : STORE.records.map(cleanRec);
     const snap = { desen, records, files: STORE.files, buildAt: new Date().toISOString() };
-    // 转义 < 避免记录文本中的 </script> 或 < 破坏内联数据脚本
+    // 转义 JSON 中的尖括号，防止内联 HTML 时提前闭合 script 标签
     const dataJson = JSON.stringify(snap).replace(/</g, "\\u003c");
-    const dataScript = `<script>window.__SNAP__=${dataJson};<\/script>`;
-    const bootstrap = `<script>(function(){if(window.__SNAP__&&window.AppCore){window.AppCore.loadSnapshot(window.__SNAP__);}})();<\/script>`;
+    const dataScript = `<\script>window.__SNAP__=${dataJson};<\/script>`;
+    const bootstrap = `<\script>(function(){if(window.__SNAP__&&window.AppCore){window.AppCore.loadSnapshot(window.__SNAP__);}})();<\/script>`;
     // 直接序列化当前页面：逻辑脚本已内联在页面中，无需 fetch，
     // 因此 https 与 file://（双击打开）都能生成可离线打开的自包含快照。
     let html = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
     // 快照为只读视图，不需要 xlsx 库；剥离外链，避免 file:// 下加载失败
-    html = html.replace('<script src="vendor/xlsx.full.min.js"></script>', "");
+    html = html.replace('<' + 'script src="vendor/xlsx.full.min.js"></sc' + 'ript>', "");
     html = html.replace("</body>", dataScript + bootstrap + "\n</body>");
     download(new Blob([html], { type: "text/html" }),
       desen ? "随访看板_脱敏快照.html" : "随访看板_不脱敏快照.html");
