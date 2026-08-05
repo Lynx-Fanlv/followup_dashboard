@@ -1515,7 +1515,10 @@ async function doSnapshot(desen) {
     let html = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
     // 快照为只读视图，不需要 xlsx 库；剥离外链，避免 file:// 下加载失败
     html = html.replace('<' + 'script src="vendor/xlsx.full.min.js"></sc' + 'ript>', "");
-    html = html.replace("</body>", dataScript + bootstrap + "\n</body>");
+    // 注意：本文件源码中已含有字符串 "</body>"，若用 html.replace("</body>", ...) 会命中源码里的那个，
+    // 把数据脚本塞进 app.js 源码字符串、而非文档真正的 </body> 前。必须用 lastIndexOf 定位文档末尾的真实 </body>。
+    const bodyIdx = html.lastIndexOf("</body>");
+    html = html.slice(0, bodyIdx) + dataScript + bootstrap + "\n" + html.slice(bodyIdx);
     download(new Blob([html], { type: "text/html" }),
       desen ? "随访看板_脱敏快照.html" : "随访看板_不脱敏快照.html");
   } catch (err) {
@@ -1525,7 +1528,17 @@ async function doSnapshot(desen) {
   }
 }
 $("#snapshotDesenBtn").onclick = () => doSnapshot(true);
-$("#snapshotPlainBtn").onclick = () => doSnapshot(false);
+$("#snapshotPlainBtn").onclick = () => {
+  // 未脱敏快照含明文个人信息，生成前必须明确提示隐私风险，禁止外部转发
+  const ok = confirm(
+    "⚠️ 隐私风险提示\n\n" +
+    "「未脱敏快照」包含明文姓名、电话等个人敏感信息。\n" +
+    "仅可分享给可信的团队成员，切勿通过外部渠道（邮件 / 微信 / 公网 / 不可信接收方）转发。\n\n" +
+    "如仅需对外分享，请改用「脱敏快照」。\n\n" +
+    "确定要生成未脱敏快照吗？"
+  );
+  if (ok) doSnapshot(false);
+};
 
 /* ============ 快照打开模式（仅供生成的快照内部调用） ============ */
 function loadSnapshot(snap) {
