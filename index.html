@@ -1506,7 +1506,10 @@ async function doSnapshot(desen) {
     // 转义 JSON 中的尖括号，防止内联 HTML 时提前闭合 script 标签
     const dataJson = JSON.stringify(snap).replace(/</g, "\\u003c");
     const dataScript = `<\script>window.__SNAP__=${dataJson};<\/script>`;
-    const bootstrap = `<\script>(function(){if(window.__SNAP__&&window.AppCore){window.AppCore.loadSnapshot(window.__SNAP__);}})();<\/script>`;
+    const bootstrap = `<\script>(function(){
+      if(window.__SNAP__&&window.AppCore){window.AppCore.loadSnapshot(window.__SNAP__);}
+      else{var ld=document.getElementById('loading');if(ld){ld.querySelector('.txt').textContent='快照加载失败：脚本未内联。请用网页版（index.html）生成快照，不要用 index.template.html。';ld.classList.remove('hidden');}}
+    })();<\/script>`;
     // 直接序列化当前页面：逻辑脚本已内联在页面中，无需 fetch，
     // 因此 https 与 file://（双击打开）都能生成可离线打开的自包含快照。
     let html = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
@@ -1526,6 +1529,7 @@ $("#snapshotPlainBtn").onclick = () => doSnapshot(false);
 
 /* ============ 快照打开模式（仅供生成的快照内部调用） ============ */
 function loadSnapshot(snap) {
+  hideLoading(); // 快照可能序列化时拍入了可见的「正在生成」遮罩，打开后必须先关掉
   SNAP_MODE = true;
   STORE.records = (snap.records || []).map(r => Object.assign({}, r));
   STORE.files = snap.files || [];
