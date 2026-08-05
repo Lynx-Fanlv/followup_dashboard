@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>随访数据看板（纯本地版）</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --panel:#ffffff; --line:#e6e8eb; --text:#1f2937; --muted:#6b7280;
+    --brand:#3b5bdb; --brand-soft:#eef2ff;
+    --good:#0f9d6b; --good-bg:#e7f7f0;
+    --bad:#e03131; --bad-bg:#fdecec;
+    --warn:#e8590c; --warn-bg:#fff1e8;
+    --gray:#868e96; --gray-bg:#f1f3f5;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+       background:var(--bg);color:var(--text);font-size:14px;line-height:1.6}
+  header{padding:18px 24px;background:var(--panel);border-bottom:1px solid var(--line)}
+  header h1{margin:0;font-size:18px;font-weight:600}
+  header p{margin:4px 0 0;color:var(--muted);font-size:13px}
+  .wrap{max-width:1180px;margin:0 auto;padding:20px 24px 60px}
+  .upload{border:2px dashed var(--line);border-radius:12px;background:var(--panel);
+         padding:22px;text-align:center;transition:.15s}
+  .upload.drag{border-color:var(--brand);background:var(--brand-soft)}
+  .upload h3{margin:0 0 6px;font-size:15px}
+  .upload p{margin:0 0 12px;color:var(--muted)}
+  .btn{display:inline-block;background:var(--brand);color:#fff;border:none;border-radius:8px;
+       padding:9px 18px;font-size:14px;cursor:pointer}
+  .btn.ghost{background:#fff;color:var(--brand);border:1px solid var(--brand)}
+  .btn.sm{padding:5px 12px;font-size:13px}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  #fileInput{display:none}
+  .hidden{display:none}
+  /* 待分析文件区 + 开始分析 */
+  .pending{margin-top:14px;background:var(--brand-soft);border:1px solid var(--brand);
+    border-radius:12px;padding:12px 14px;text-align:left}
+  .pending .p-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .pending .p-head b{font-size:13px;color:var(--brand)}
+  .pending .p-list{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+  /* 文件管理 */
+  .filebar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--panel);
+    border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:16px 0 4px}
+  .filebar .fb-lbl{font-size:13px;color:var(--muted);font-weight:600}
+  .file-chip{display:inline-flex;align-items:center;gap:6px;background:var(--brand-soft);
+    border:1px solid var(--brand);color:var(--brand);border-radius:999px;padding:3px 10px;font-size:12px}
+  .file-chip .fx{cursor:pointer;font-weight:700;opacity:.6}
+  .file-chip .fx:hover{opacity:1;color:var(--bad)}
+  .filebar .clear-all{margin-left:auto;background:#fff;color:var(--bad);border:1px solid var(--bad);
+    border-radius:8px;padding:4px 12px;font-size:12px;cursor:pointer}
+  .filebar .clear-all:hover{background:var(--bad);color:#fff}
+  /* 统计卡片 */
+  .summary{display:flex;flex-wrap:wrap;gap:14px;margin:14px 0 8px;align-items:stretch}
+  .total{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+         padding:14px 20px;min-width:150px}
+  .total .n{font-size:30px;font-weight:700;line-height:1.1}
+  .total .l{color:var(--muted);font-size:13px}
+  .card{flex:1;min-width:150px;background:var(--panel);border:1px solid var(--line);
+        border-radius:12px;padding:14px 18px;cursor:pointer;position:relative;transition:.12s}
+  .card:hover{border-color:var(--brand);transform:translateY(-2px);
+        box-shadow:0 4px 12px rgba(40,80,200,.14)}
+  .card .n{font-size:26px;font-weight:700}
+  .card .l{font-size:13px;color:var(--muted);margin-top:2px}
+  .card .dot{position:absolute;top:14px;right:14px;width:10px;height:10px;border-radius:50%}
+  .card .cue{position:absolute;bottom:10px;right:14px;font-size:11px;color:var(--brand);opacity:.75}
+  .card.active{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand) inset;
+               background:var(--brand-soft)}
+  .c-规范用药 .n{color:var(--good)} .c-规范用药 .dot{background:var(--good)}
+  .c-不规范用药 .n{color:var(--bad)} .c-不规范用药 .dot{background:var(--bad)}
+  .c-脱落停药 .n{color:var(--warn)} .c-脱落停药 .dot{background:var(--warn)}
+  .c-其他 .n{color:var(--gray)} .c-其他 .dot{background:var(--gray)}
+  .global-summary{background:linear-gradient(135deg,#f4f8ff,#eaf0ff);border:1px solid var(--line);
+    border-radius:14px;padding:16px 18px;margin:0 0 6px;box-shadow:0 2px 12px rgba(40,80,200,.07)}
+  .global-summary .g-head{display:flex;align-items:baseline;gap:10px;margin-bottom:13px}
+  .global-summary .g-title{font-size:15px;font-weight:800;color:var(--text);display:flex;align-items:center;gap:7px}
+  .global-summary .g-title::before{content:"";width:4px;height:16px;border-radius:3px;background:var(--brand);display:inline-block}
+  .global-summary .g-sub{font-size:12px;color:var(--muted)}
+  .global-summary .g-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(124px,1fr));gap:10px}
+  .g-card{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--gray);
+    border-radius:12px;padding:12px 14px;min-height:66px;display:flex;flex-direction:column;
+    justify-content:center;gap:5px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  .g-card .g-num{font-size:27px;font-weight:800;line-height:1;color:var(--text);font-variant-numeric:tabular-nums}
+  .g-card .g-cap{font-size:12px;color:var(--muted)}
+  .g-card.规范用药{border-left-color:var(--good)} .g-card.规范用药 .g-num{color:var(--good)}
+  .g-card.不规范用药{border-left-color:var(--bad)} .g-card.不规范用药 .g-num{color:var(--bad)}
+  .g-card.脱落停药{border-left-color:var(--warn)} .g-card.脱落停药 .g-num{color:var(--warn)}
+  .g-card.其他{border-left-color:var(--gray)} .g-card.其他 .g-num{color:var(--gray)}
+  .g-card.src{border-left-color:#7c8cf0}
+  .g-card.total{background:linear-gradient(135deg,var(--brand),#3b5bdb);border:1px solid var(--brand);border-left:4px solid #2f4ec0}
+  .g-card.total .g-num,.g-card.total .g-cap{color:#fff}
+  /* 图表 */
+  .charts{display:grid;grid-template-columns:1fr 1.2fr 1.3fr;gap:12px;margin:12px 0 4px}
+  .chart-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .chart-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px}
+  .chart-sub{font-size:11px;color:var(--muted);margin:-4px 0 8px}
+  .chart-empty{color:var(--muted);font-size:12px;text-align:center;padding:30px 0}
+  .donut-flex{display:flex;align-items:center;gap:14px}
+  .lg{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+  .lg-item{display:flex;align-items:center;gap:6px}
+  .lg-dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .bars{display:flex;flex-direction:column;gap:7px}
+  .bar-row{display:flex;align-items:center;gap:8px;font-size:12px}
+  .bar-label{width:88px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar-track{flex:1;background:var(--gray-bg);border-radius:5px;height:14px;overflow:hidden}
+  .bar-fill{display:block;height:100%;background:var(--brand);border-radius:5px}
+  .bar-val{width:38px;text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
+  /* 统一筛选栏 */
+  .filterbar{position:sticky;top:0;z-index:8;display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0 4px;
+    box-shadow:0 1px 3px rgba(0,0,0,.03)}
+  .filterbar input[type=text], .filterbar input[type=date]{
+    font-size:13px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;
+    background:#fff;color:var(--text);font-family:inherit;transition:.12s}
+  .filterbar input[type=text]:focus, .filterbar input[type=date]:focus{
+    outline:none;border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+  .fb-search{min-width:220px;flex:0 1 240px}
+  .fb-date{display:flex;align-items:center;gap:6px}
+  .fb-date label{font-size:12px;color:var(--muted);font-weight:600}
+  .fb-sep{color:var(--muted);font-size:12px}
+  .filterbar .fb-export{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+  .filterbar .export{background:#fff;color:var(--brand);border:1px solid var(--brand);
+    border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:.12s}
+  .filterbar .export:hover{background:var(--brand);color:#fff}
+  .filterbar .export.snap{background:#fff;color:var(--warn);border-color:var(--warn)}
+  .filterbar .export.snap:hover{background:var(--warn);color:#fff}
+  /* 多选下拉 */
+  .ms{position:relative}
+  .ms-btn{font-size:13px;padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;
+    color:var(--text);cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:.12s;white-space:nowrap}
+  .ms-btn:hover{border-color:var(--brand)}
+  .ms-btn.has-sel{border-color:var(--brand);background:var(--brand-soft);color:var(--brand);font-weight:600}
+  .ms-caret{font-size:10px;opacity:.6}
+  .ms-panel{position:absolute;top:calc(100% + 4px);left:0;z-index:20;background:#fff;border:1px solid var(--line);
+    border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);width:260px;max-width:90vw;display:flex;flex-direction:column}
+  .ms-panel.hidden{display:none}
+  .ms-tools{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:12px}
+  .ms-tools .ms-count{color:var(--muted);margin-right:auto}
+  .ms-tools .ms-act{color:var(--brand);cursor:pointer}
+  .ms-tools .ms-act:hover{text-decoration:underline}
+  .ms-list{max-height:240px;overflow:auto;padding:4px 0}
+  .ms-list label{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:13px;cursor:pointer;color:var(--text)}
+  .ms-list label:hover{background:#f9fbff}
+  .ms-list label .ms-cnt{margin-left:auto;color:var(--muted);font-size:11px}
+  .ms-list input{accent-color:var(--brand)}
+  .ms-search{width:100%;box-sizing:border-box;margin:8px 12px 4px;padding:7px 10px;border:1px solid var(--line);
+    border-radius:8px;font-size:13px;outline:none;background:#fff;color:var(--text)}
+  .ms-search:focus{border-color:var(--brand)}
+  .chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;
+        padding:4px 12px;font-size:13px;cursor:pointer;color:var(--muted)}
+  .chip:hover{border-color:var(--brand);color:var(--brand)}
+  .chip.active{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:600}
+  .subtype-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0 2px}
+  .subtype-bar .lbl{font-size:13px;color:var(--muted);font-weight:600}
+  .subtype-bar.hidden{display:none}
+  .filter-section{margin:14px 0 4px}
+  .fs-label{font-size:13px;font-weight:600;color:var(--text);margin:0 2px 8px;
+    display:flex;align-items:center;gap:8px}
+  .fs-label::before{content:"";width:4px;height:14px;border-radius:3px;background:var(--brand)}
+  .fs-hint{font-size:12px;color:var(--muted);font-weight:400}
+  .filterinfo{color:var(--muted);font-size:12px;margin:6px 2px 0}
+  /* 明细头/视图切换/列显隐 */
+  .detail-head{display:flex;align-items:center;gap:10px;margin:14px 0 8px}
+  .view-toggle{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .view-toggle button{border:none;background:#fff;color:var(--muted);padding:7px 16px;font-size:13px;cursor:pointer}
+  .view-toggle button.active{background:var(--brand);color:#fff;font-weight:600}
+  .desen-tog{display:flex;gap:10px;align-items:center}
+  .dt-grp{display:inline-flex;align-items:stretch;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .dt-lbl{font-size:12px;color:var(--muted);padding:6px 8px;background:#fafbfc;border-right:1px solid var(--line);display:flex;align-items:center}
+  .dt-btn{border:none;background:#fff;color:var(--muted);padding:6px 10px;font-size:12px;cursor:pointer;transition:.12s}
+  .dt-btn:hover{background:#f3f4f6}
+  .dt-btn.active{background:var(--brand);color:#fff;font-weight:600}
+  .dt-btn+.dt-btn{border-left:1px solid var(--line)}
+  .dt-btn:disabled{opacity:.4;cursor:not-allowed}
+  .detail-head .spacer{flex:1}
+  .col-panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:10px 14px;margin:0 0 8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .col-panel.hidden{display:none}
+  .col-panel label{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);cursor:pointer}
+  .col-panel input{accent-color:var(--brand)}
+  .tbl-wrap{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:auto;max-height:60vh}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{position:sticky;top:0;background:#fafbfc;color:var(--muted);font-weight:600;white-space:nowrap;z-index:1}
+  tbody tr.data-row{cursor:pointer}
+  tbody tr.data-row:hover{background:#f9fbff}
+  tr.expand-row td{background:#f8faff;border-bottom:1px solid var(--line)}
+  .expand-box{font-size:12px;color:#374151;white-space:pre-wrap;line-height:1.7}
+  .expand-box .eb-lbl{color:var(--brand);font-weight:600}
+  .tag{display:inline-block;padding:1px 8px;border-radius:6px;font-size:12px;font-weight:500;white-space:nowrap}
+  .tag.规范用药{background:var(--good-bg);color:var(--good)}
+  .tag.不规范用药{background:var(--bad-bg);color:var(--bad)}
+  .tag.脱落停药{background:var(--warn-bg);color:var(--warn)}
+  .tag.其他{background:var(--gray-bg);color:var(--gray)}
+  .tag.sub{background:var(--bad-bg);color:var(--bad)}
+  td.remarks{white-space:pre-wrap;max-width:340px;color:#374151}
+  .cell-clip{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-width:340px}
+  .empty{padding:40px;text-align:center;color:var(--muted)}
+  .pat-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:8px;overflow:hidden}
+  .pat-head{display:flex;align-items:center;gap:12px;padding:11px 16px;cursor:pointer;flex-wrap:wrap}
+  .pat-head:hover{background:#f9fbff}
+  .pat-name{font-weight:600;font-size:14px}
+  .pat-phone{color:var(--muted);font-size:13px}
+  .pat-tags{display:flex;gap:5px;flex-wrap:wrap}
+  .pat-count{margin-left:auto;color:var(--muted);font-size:12px}
+  .pat-arrow{color:var(--muted);font-size:12px}
+  .pat-body{border-top:1px solid var(--line);background:#fafbfc;padding:10px 16px}
+  .pat-body.hidden{display:none}
+  .mini-table{width:100%;font-size:12px}
+  .mini-table th,.mini-table td{padding:6px 10px}
+  .pagination{display:flex;justify-content:space-between;align-items:center;margin-top:10px;
+    font-size:13px;color:var(--muted)}
+  .pg-btns{display:flex;gap:8px}
+  .sec-title{font-size:14px;font-weight:600;margin:22px 0 4px;color:var(--text)}
+  .hint{color:var(--muted);font-size:12px;margin:2px 0 0}
+  .modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:50}
+  .modal-mask.hidden{display:none}
+  .modal{background:#fff;border-radius:14px;padding:22px 24px;width:340px;max-width:90vw;box-shadow:0 10px 40px rgba(0,0,0,.2)}
+  .modal h3{margin:0 0 6px;font-size:16px}
+  .modal .hint{margin:0 0 14px}
+  .modal input[type=password]{width:100%;font-size:14px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box}
+  .modal-err{color:var(--bad);font-size:12px;min-height:16px;margin-top:6px}
+  .modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+  /* 加载遮罩 */
+  #loading{position:fixed;inset:0;background:rgba(255,255,255,.82);display:flex;align-items:center;justify-content:center;z-index:80}
+  /* 关键修复:ID 选择器 #loading 的 display:flex 优先级高于 .hidden 的 display:none,
+     会导致加载遮罩在默认 hidden 时仍显示并卡死页面。用 #loading.hidden 抬优先级盖回去。 */
+  #loading.hidden{display:none}
+  #loading .box{background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px 34px;
+    box-shadow:0 10px 40px rgba(0,0,0,.12);text-align:center}
+  #loading .spin{width:34px;height:34px;border:4px solid var(--brand-soft);border-top-color:var(--brand);
+    border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px}
+  #loading .txt{color:var(--text);font-size:14px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  /* 快照模式提示条 */
+  .snap-banner{background:#fff7ed;border:1px solid var(--warn);color:#9a3412;
+    border-radius:10px;padding:8px 14px;font-size:12px;margin:10px 0}
+  .snap-banner.hidden{display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>随访数据看板（纯本地版）</h1>
+  <p>上传 Excel → 点「开始分析」→ 自动归一化并展示。所有解析与计算均在你的浏览器内完成，数据不会上传到任何服务器。</p>
+</header>
+
+<div class="wrap">
+  <div class="upload" id="drop">
+    <h3>拖入表格，或点击选择</h3>
+    <p>支持同时选择多个 Excel 文件（.xls / .xlsx）；表头自动识别归一化。选择后请点「开始分析」。</p>
+    <button class="btn" id="pickBtn">选择文件</button>
+    <input type="file" id="fileInput" accept=".xls,.xlsx" multiple>
+  </div>
+
+  <!-- 待分析文件区 -->
+  <div class="pending hidden" id="pendingArea">
+    <div class="p-head"><b>已选择待分析文件</b><span class="hint" id="pendingCount"></span></div>
+    <div class="p-list" id="pendingList"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn" id="startBtn" disabled>开始分析</button>
+      <button class="btn ghost" id="addMoreBtn">继续添加文件</button>
+      <button class="btn ghost" id="clearPendingBtn">清空选择</button>
+    </div>
+  </div>
+
+  <div id="board" class="hidden">
+    <!-- 快照模式提示 -->
+    <div class="snap-banner hidden" id="snapBanner"></div>
+
+    <!-- 文件管理 -->
+    <div class="filebar">
+      <span class="fb-lbl">已加载文件</span>
+      <span id="fileChips"></span>
+      <button class="clear-all" id="clearAllBtn">清空全部</button>
+    </div>
+
+    <!-- 全量统计 -->
+    <div class="global-summary" id="globalRow"></div>
+
+    <!-- 图表 -->
+    <div class="charts">
+      <div class="chart-card"><div class="chart-title">用药状态占比</div><div id="donutChart"></div></div>
+      <div class="chart-card"><div class="chart-title">药品记录数 TOP5</div><div id="drugChart"></div></div>
+      <div class="chart-card"><div class="chart-title">随访时间趋势</div><div id="trendChart"></div></div>
+    </div>
+
+    <!-- 筛选区 -->
+    <div class="filter-section">
+      <div class="fs-label">用药状态筛选<span class="fs-hint">点选下方卡片筛选，再次点击取消；可与右侧条件叠加</span></div>
+      <div class="summary" id="summary"></div>
+
+      <div class="subtype-bar hidden" id="subtypeBar">
+        <span class="lbl">不规范下钻</span>
+        <span id="subtypeChips"></span>
+      </div>
+
+      <div class="filterbar">
+      <input type="text" id="searchInput" class="fb-search" placeholder="搜索 患者 / 电话 / 药店 / 药品">
+      <div class="ms" id="drugMs">
+        <button class="ms-btn" type="button" id="drugMsBtn">药品：全部 <span class="ms-caret">▾</span></button>
+        <div class="ms-panel hidden" id="drugMsPanel">
+          <div class="ms-tools"><span class="ms-count" id="drugMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act" data-act="none">清空</a></div>
+          <div class="ms-list" id="drugMsList"></div>
+        </div>
+      </div>
+      <div class="ms" id="pharmMs">
+        <button class="ms-btn" type="button" id="pharmMsBtn">药店：全部 <span class="ms-caret">▾</span></button>
+        <div class="ms-panel hidden" id="pharmMsPanel">
+          <div class="ms-tools"><span class="ms-count" id="pharmMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act" data-act="none">清空</a></div>
+          <div class="ms-list" id="pharmMsList"></div>
+        </div>
+      </div>
+      <span class="fb-date"><label>时间</label>
+      <input type="date" id="startDate"><span class="fb-sep">至</span>
+      <input type="date" id="endDate"></span>
+      <button class="btn ghost sm" id="clearBtn">清除筛选</button>
+      <span class="fb-export">
+        <button class="export" id="exportDesenBtn">导出脱敏明细</button>
+        <button class="export" id="exportPlainBtn">导出未脱敏明细</button>
+        <button class="export snap" id="snapshotDesenBtn">下载脱敏快照</button>
+        <button class="export snap" id="snapshotPlainBtn">下载不脱敏快照</button>
+      </span>
+    </div>
+    </div>
+    <div class="filterinfo" id="filterInfo"></div>
+
+    <!-- 明细头 -->
+    <div class="detail-head">
+      <div class="view-toggle">
+        <button id="viewDetailBtn" class="active">明细</button>
+        <button id="viewPatientBtn">患者聚合</button>
+      </div>
+      <div class="desen-tog">
+        <span class="dt-grp"><span class="dt-lbl">姓名</span><button class="dt-btn active" data-field="name" data-mode="mask">脱敏</button><button class="dt-btn" data-field="name" data-mode="plain">不脱敏</button></span>
+        <span class="dt-grp"><span class="dt-lbl">电话</span><button class="dt-btn active" data-field="phone" data-mode="mask">脱敏</button><button class="dt-btn" data-field="phone" data-mode="plain">不脱敏</button></span>
+      </div>
+      <span class="spacer"></span>
+      <button class="btn ghost sm" id="colBtn">列显隐</button>
+    </div>
+    <div class="col-panel hidden" id="colPanel"></div>
+
+    <!-- 明细表 -->
+    <div class="tbl-wrap" id="detailView">
+      <table>
+        <thead><tr id="thead"></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="empty hidden" id="empty">无匹配记录</div>
+    </div>
+
+    <!-- 患者聚合视图 -->
+    <div id="patientView" class="hidden"></div>
+
+    <!-- 分页 -->
+    <div class="pagination" id="pagination"></div>
+  </div>
+</div>
+
+<div class="modal-mask hidden" id="keyMask">
+  <div class="modal">
+    <h3>确认导出未脱敏明细</h3>
+    <p class="hint">将包含明文姓名、电话等个人信息，请确认接收方可信。</p>
+    <input type="password" id="keyInput" placeholder="输入任意内容以确认" autocomplete="off">
+    <div class="modal-err" id="keyErr"></div>
+    <div class="modal-btns">
+      <button class="btn ghost" id="keyCancel">取消</button>
+      <button class="btn" id="keyConfirm">确认导出</button>
+    </div>
+  </div>
+</div>
+
+<div id="loading" class="hidden"><div class="box"><div class="spin"></div><div class="txt" id="loadingTxt">正在解析…</div></div></div>
+
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="mapping.js"></script>
+<script src="pipeline.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

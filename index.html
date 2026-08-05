@@ -1,0 +1,1559 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>随访数据看板（纯本地版）</title>
+<style>
+  :root{
+    --bg:#f7f8fa; --panel:#ffffff; --line:#e6e8eb; --text:#1f2937; --muted:#6b7280;
+    --brand:#3b5bdb; --brand-soft:#eef2ff;
+    --good:#0f9d6b; --good-bg:#e7f7f0;
+    --bad:#e03131; --bad-bg:#fdecec;
+    --warn:#e8590c; --warn-bg:#fff1e8;
+    --gray:#868e96; --gray-bg:#f1f3f5;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+       background:var(--bg);color:var(--text);font-size:14px;line-height:1.6}
+  header{padding:18px 24px;background:var(--panel);border-bottom:1px solid var(--line)}
+  header h1{margin:0;font-size:18px;font-weight:600}
+  header p{margin:4px 0 0;color:var(--muted);font-size:13px}
+  .wrap{max-width:1180px;margin:0 auto;padding:20px 24px 60px}
+  .upload{border:2px dashed var(--line);border-radius:12px;background:var(--panel);
+         padding:22px;text-align:center;transition:.15s}
+  .upload.drag{border-color:var(--brand);background:var(--brand-soft)}
+  .upload h3{margin:0 0 6px;font-size:15px}
+  .upload p{margin:0 0 12px;color:var(--muted)}
+  .btn{display:inline-block;background:var(--brand);color:#fff;border:none;border-radius:8px;
+       padding:9px 18px;font-size:14px;cursor:pointer}
+  .btn.ghost{background:#fff;color:var(--brand);border:1px solid var(--brand)}
+  .btn.sm{padding:5px 12px;font-size:13px}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  #fileInput{display:none}
+  .hidden{display:none}
+  /* 待分析文件区 + 开始分析 */
+  .pending{margin-top:14px;background:var(--brand-soft);border:1px solid var(--brand);
+    border-radius:12px;padding:12px 14px;text-align:left}
+  .pending .p-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .pending .p-head b{font-size:13px;color:var(--brand)}
+  .pending .p-list{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+  /* 文件管理 */
+  .filebar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--panel);
+    border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:16px 0 4px}
+  .filebar .fb-lbl{font-size:13px;color:var(--muted);font-weight:600}
+  .file-chip{display:inline-flex;align-items:center;gap:6px;background:var(--brand-soft);
+    border:1px solid var(--brand);color:var(--brand);border-radius:999px;padding:3px 10px;font-size:12px}
+  .file-chip .fx{cursor:pointer;font-weight:700;opacity:.6}
+  .file-chip .fx:hover{opacity:1;color:var(--bad)}
+  .filebar .clear-all{margin-left:auto;background:#fff;color:var(--bad);border:1px solid var(--bad);
+    border-radius:8px;padding:4px 12px;font-size:12px;cursor:pointer}
+  .filebar .clear-all:hover{background:var(--bad);color:#fff}
+  /* 统计卡片 */
+  .summary{display:flex;flex-wrap:wrap;gap:14px;margin:14px 0 8px;align-items:stretch}
+  .total{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+         padding:14px 20px;min-width:150px}
+  .total .n{font-size:30px;font-weight:700;line-height:1.1}
+  .total .l{color:var(--muted);font-size:13px}
+  .card{flex:1;min-width:150px;background:var(--panel);border:1px solid var(--line);
+        border-radius:12px;padding:14px 18px;cursor:pointer;position:relative;transition:.12s}
+  .card:hover{border-color:var(--brand);transform:translateY(-2px);
+        box-shadow:0 4px 12px rgba(40,80,200,.14)}
+  .card .n{font-size:26px;font-weight:700}
+  .card .l{font-size:13px;color:var(--muted);margin-top:2px}
+  .card .dot{position:absolute;top:14px;right:14px;width:10px;height:10px;border-radius:50%}
+  .card .cue{position:absolute;bottom:10px;right:14px;font-size:11px;color:var(--brand);opacity:.75}
+  .card.active{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand) inset;
+               background:var(--brand-soft)}
+  .c-规范用药 .n{color:var(--good)} .c-规范用药 .dot{background:var(--good)}
+  .c-不规范用药 .n{color:var(--bad)} .c-不规范用药 .dot{background:var(--bad)}
+  .c-脱落停药 .n{color:var(--warn)} .c-脱落停药 .dot{background:var(--warn)}
+  .c-其他 .n{color:var(--gray)} .c-其他 .dot{background:var(--gray)}
+  .global-summary{background:linear-gradient(135deg,#f4f8ff,#eaf0ff);border:1px solid var(--line);
+    border-radius:14px;padding:16px 18px;margin:0 0 6px;box-shadow:0 2px 12px rgba(40,80,200,.07)}
+  .global-summary .g-head{display:flex;align-items:baseline;gap:10px;margin-bottom:13px}
+  .global-summary .g-title{font-size:15px;font-weight:800;color:var(--text);display:flex;align-items:center;gap:7px}
+  .global-summary .g-title::before{content:"";width:4px;height:16px;border-radius:3px;background:var(--brand);display:inline-block}
+  .global-summary .g-sub{font-size:12px;color:var(--muted)}
+  .global-summary .g-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(124px,1fr));gap:10px}
+  .g-card{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--gray);
+    border-radius:12px;padding:12px 14px;min-height:66px;display:flex;flex-direction:column;
+    justify-content:center;gap:5px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  .g-card .g-num{font-size:27px;font-weight:800;line-height:1;color:var(--text);font-variant-numeric:tabular-nums}
+  .g-card .g-cap{font-size:12px;color:var(--muted)}
+  .g-card.规范用药{border-left-color:var(--good)} .g-card.规范用药 .g-num{color:var(--good)}
+  .g-card.不规范用药{border-left-color:var(--bad)} .g-card.不规范用药 .g-num{color:var(--bad)}
+  .g-card.脱落停药{border-left-color:var(--warn)} .g-card.脱落停药 .g-num{color:var(--warn)}
+  .g-card.其他{border-left-color:var(--gray)} .g-card.其他 .g-num{color:var(--gray)}
+  .g-card.src{border-left-color:#7c8cf0}
+  .g-card.total{background:linear-gradient(135deg,var(--brand),#3b5bdb);border:1px solid var(--brand);border-left:4px solid #2f4ec0}
+  .g-card.total .g-num,.g-card.total .g-cap{color:#fff}
+  /* 图表 */
+  .charts{display:grid;grid-template-columns:1fr 1.2fr 1.3fr;gap:12px;margin:12px 0 4px}
+  .chart-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .chart-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px}
+  .chart-sub{font-size:11px;color:var(--muted);margin:-4px 0 8px}
+  .chart-empty{color:var(--muted);font-size:12px;text-align:center;padding:30px 0}
+  .donut-flex{display:flex;align-items:center;gap:14px}
+  .lg{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+  .lg-item{display:flex;align-items:center;gap:6px}
+  .lg-dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .bars{display:flex;flex-direction:column;gap:7px}
+  .bar-row{display:flex;align-items:center;gap:8px;font-size:12px}
+  .bar-label{width:88px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar-track{flex:1;background:var(--gray-bg);border-radius:5px;height:14px;overflow:hidden}
+  .bar-fill{display:block;height:100%;background:var(--brand);border-radius:5px}
+  .bar-val{width:38px;text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
+  /* 统一筛选栏 */
+  .filterbar{position:sticky;top:0;z-index:8;display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0 4px;
+    box-shadow:0 1px 3px rgba(0,0,0,.03)}
+  .filterbar input[type=text], .filterbar input[type=date]{
+    font-size:13px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;
+    background:#fff;color:var(--text);font-family:inherit;transition:.12s}
+  .filterbar input[type=text]:focus, .filterbar input[type=date]:focus{
+    outline:none;border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+  .fb-search{min-width:220px;flex:0 1 240px}
+  .fb-date{display:flex;align-items:center;gap:6px}
+  .fb-date label{font-size:12px;color:var(--muted);font-weight:600}
+  .fb-sep{color:var(--muted);font-size:12px}
+  .filterbar .fb-export{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+  .filterbar .export{background:#fff;color:var(--brand);border:1px solid var(--brand);
+    border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;transition:.12s}
+  .filterbar .export:hover{background:var(--brand);color:#fff}
+  .filterbar .export.snap{background:#fff;color:var(--warn);border-color:var(--warn)}
+  .filterbar .export.snap:hover{background:var(--warn);color:#fff}
+  /* 多选下拉 */
+  .ms{position:relative}
+  .ms-btn{font-size:13px;padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;
+    color:var(--text);cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:.12s;white-space:nowrap}
+  .ms-btn:hover{border-color:var(--brand)}
+  .ms-btn.has-sel{border-color:var(--brand);background:var(--brand-soft);color:var(--brand);font-weight:600}
+  .ms-caret{font-size:10px;opacity:.6}
+  .ms-panel{position:absolute;top:calc(100% + 4px);left:0;z-index:20;background:#fff;border:1px solid var(--line);
+    border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);width:260px;max-width:90vw;display:flex;flex-direction:column}
+  .ms-panel.hidden{display:none}
+  .ms-tools{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);font-size:12px}
+  .ms-tools .ms-count{color:var(--muted);margin-right:auto}
+  .ms-tools .ms-act{color:var(--brand);cursor:pointer}
+  .ms-tools .ms-act:hover{text-decoration:underline}
+  .ms-list{max-height:240px;overflow:auto;padding:4px 0}
+  .ms-list label{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:13px;cursor:pointer;color:var(--text)}
+  .ms-list label:hover{background:#f9fbff}
+  .ms-list label .ms-cnt{margin-left:auto;color:var(--muted);font-size:11px}
+  .ms-list input{accent-color:var(--brand)}
+  .ms-search{width:100%;box-sizing:border-box;margin:8px 12px 4px;padding:7px 10px;border:1px solid var(--line);
+    border-radius:8px;font-size:13px;outline:none;background:#fff;color:var(--text)}
+  .ms-search:focus{border-color:var(--brand)}
+  .chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;
+        padding:4px 12px;font-size:13px;cursor:pointer;color:var(--muted)}
+  .chip:hover{border-color:var(--brand);color:var(--brand)}
+  .chip.active{background:var(--brand);color:#fff;border-color:var(--brand);font-weight:600}
+  .subtype-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0 2px}
+  .subtype-bar .lbl{font-size:13px;color:var(--muted);font-weight:600}
+  .subtype-bar.hidden{display:none}
+  .filter-section{margin:14px 0 4px}
+  .fs-label{font-size:13px;font-weight:600;color:var(--text);margin:0 2px 8px;
+    display:flex;align-items:center;gap:8px}
+  .fs-label::before{content:"";width:4px;height:14px;border-radius:3px;background:var(--brand)}
+  .fs-hint{font-size:12px;color:var(--muted);font-weight:400}
+  .filterinfo{color:var(--muted);font-size:12px;margin:6px 2px 0}
+  /* 明细头/视图切换/列显隐 */
+  .detail-head{display:flex;align-items:center;gap:10px;margin:14px 0 8px}
+  .view-toggle{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .view-toggle button{border:none;background:#fff;color:var(--muted);padding:7px 16px;font-size:13px;cursor:pointer}
+  .view-toggle button.active{background:var(--brand);color:#fff;font-weight:600}
+  .desen-tog{display:flex;gap:10px;align-items:center}
+  .dt-grp{display:inline-flex;align-items:stretch;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .dt-lbl{font-size:12px;color:var(--muted);padding:6px 8px;background:#fafbfc;border-right:1px solid var(--line);display:flex;align-items:center}
+  .dt-btn{border:none;background:#fff;color:var(--muted);padding:6px 10px;font-size:12px;cursor:pointer;transition:.12s}
+  .dt-btn:hover{background:#f3f4f6}
+  .dt-btn.active{background:var(--brand);color:#fff;font-weight:600}
+  .dt-btn+.dt-btn{border-left:1px solid var(--line)}
+  .dt-btn:disabled{opacity:.4;cursor:not-allowed}
+  .detail-head .spacer{flex:1}
+  .col-panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:10px 14px;margin:0 0 8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .col-panel.hidden{display:none}
+  .col-panel label{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);cursor:pointer}
+  .col-panel input{accent-color:var(--brand)}
+  .tbl-wrap{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:auto;max-height:60vh}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{position:sticky;top:0;background:#fafbfc;color:var(--muted);font-weight:600;white-space:nowrap;z-index:1}
+  tbody tr.data-row{cursor:pointer}
+  tbody tr.data-row:hover{background:#f9fbff}
+  tr.expand-row td{background:#f8faff;border-bottom:1px solid var(--line)}
+  .expand-box{font-size:12px;color:#374151;white-space:pre-wrap;line-height:1.7}
+  .expand-box .eb-lbl{color:var(--brand);font-weight:600}
+  .tag{display:inline-block;padding:1px 8px;border-radius:6px;font-size:12px;font-weight:500;white-space:nowrap}
+  .tag.规范用药{background:var(--good-bg);color:var(--good)}
+  .tag.不规范用药{background:var(--bad-bg);color:var(--bad)}
+  .tag.脱落停药{background:var(--warn-bg);color:var(--warn)}
+  .tag.其他{background:var(--gray-bg);color:var(--gray)}
+  .tag.sub{background:var(--bad-bg);color:var(--bad)}
+  td.remarks{white-space:pre-wrap;max-width:340px;color:#374151}
+  .cell-clip{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-width:340px}
+  .empty{padding:40px;text-align:center;color:var(--muted)}
+  .pat-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:8px;overflow:hidden}
+  .pat-head{display:flex;align-items:center;gap:12px;padding:11px 16px;cursor:pointer;flex-wrap:wrap}
+  .pat-head:hover{background:#f9fbff}
+  .pat-name{font-weight:600;font-size:14px}
+  .pat-phone{color:var(--muted);font-size:13px}
+  .pat-tags{display:flex;gap:5px;flex-wrap:wrap}
+  .pat-count{margin-left:auto;color:var(--muted);font-size:12px}
+  .pat-arrow{color:var(--muted);font-size:12px}
+  .pat-body{border-top:1px solid var(--line);background:#fafbfc;padding:10px 16px}
+  .pat-body.hidden{display:none}
+  .mini-table{width:100%;font-size:12px}
+  .mini-table th,.mini-table td{padding:6px 10px}
+  .pagination{display:flex;justify-content:space-between;align-items:center;margin-top:10px;
+    font-size:13px;color:var(--muted)}
+  .pg-btns{display:flex;gap:8px}
+  .sec-title{font-size:14px;font-weight:600;margin:22px 0 4px;color:var(--text)}
+  .hint{color:var(--muted);font-size:12px;margin:2px 0 0}
+  .modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:50}
+  .modal-mask.hidden{display:none}
+  .modal{background:#fff;border-radius:14px;padding:22px 24px;width:340px;max-width:90vw;box-shadow:0 10px 40px rgba(0,0,0,.2)}
+  .modal h3{margin:0 0 6px;font-size:16px}
+  .modal .hint{margin:0 0 14px}
+  .modal input[type=password]{width:100%;font-size:14px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box}
+  .modal-err{color:var(--bad);font-size:12px;min-height:16px;margin-top:6px}
+  .modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+  /* 加载遮罩 */
+  #loading{position:fixed;inset:0;background:rgba(255,255,255,.82);display:flex;align-items:center;justify-content:center;z-index:80}
+  /* 关键修复:ID 选择器 #loading 的 display:flex 优先级高于 .hidden 的 display:none,
+     会导致加载遮罩在默认 hidden 时仍显示并卡死页面。用 #loading.hidden 抬优先级盖回去。 */
+  #loading.hidden{display:none}
+  #loading .box{background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px 34px;
+    box-shadow:0 10px 40px rgba(0,0,0,.12);text-align:center}
+  #loading .spin{width:34px;height:34px;border:4px solid var(--brand-soft);border-top-color:var(--brand);
+    border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px}
+  #loading .txt{color:var(--text);font-size:14px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  /* 快照模式提示条 */
+  .snap-banner{background:#fff7ed;border:1px solid var(--warn);color:#9a3412;
+    border-radius:10px;padding:8px 14px;font-size:12px;margin:10px 0}
+  .snap-banner.hidden{display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>随访数据看板（纯本地版）</h1>
+  <p>上传 Excel → 点「开始分析」→ 自动归一化并展示。所有解析与计算均在你的浏览器内完成，数据不会上传到任何服务器。</p>
+</header>
+
+<div class="wrap">
+  <div class="upload" id="drop">
+    <h3>拖入表格，或点击选择</h3>
+    <p>支持同时选择多个 Excel 文件（.xls / .xlsx）；表头自动识别归一化。选择后请点「开始分析」。</p>
+    <button class="btn" id="pickBtn">选择文件</button>
+    <input type="file" id="fileInput" accept=".xls,.xlsx" multiple>
+  </div>
+
+  <!-- 待分析文件区 -->
+  <div class="pending hidden" id="pendingArea">
+    <div class="p-head"><b>已选择待分析文件</b><span class="hint" id="pendingCount"></span></div>
+    <div class="p-list" id="pendingList"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn" id="startBtn" disabled>开始分析</button>
+      <button class="btn ghost" id="addMoreBtn">继续添加文件</button>
+      <button class="btn ghost" id="clearPendingBtn">清空选择</button>
+    </div>
+  </div>
+
+  <div id="board" class="hidden">
+    <!-- 快照模式提示 -->
+    <div class="snap-banner hidden" id="snapBanner"></div>
+
+    <!-- 文件管理 -->
+    <div class="filebar">
+      <span class="fb-lbl">已加载文件</span>
+      <span id="fileChips"></span>
+      <button class="clear-all" id="clearAllBtn">清空全部</button>
+    </div>
+
+    <!-- 全量统计 -->
+    <div class="global-summary" id="globalRow"></div>
+
+    <!-- 图表 -->
+    <div class="charts">
+      <div class="chart-card"><div class="chart-title">用药状态占比</div><div id="donutChart"></div></div>
+      <div class="chart-card"><div class="chart-title">药品记录数 TOP5</div><div id="drugChart"></div></div>
+      <div class="chart-card"><div class="chart-title">随访时间趋势</div><div id="trendChart"></div></div>
+    </div>
+
+    <!-- 筛选区 -->
+    <div class="filter-section">
+      <div class="fs-label">用药状态筛选<span class="fs-hint">点选下方卡片筛选，再次点击取消；可与右侧条件叠加</span></div>
+      <div class="summary" id="summary"></div>
+
+      <div class="subtype-bar hidden" id="subtypeBar">
+        <span class="lbl">不规范下钻</span>
+        <span id="subtypeChips"></span>
+      </div>
+
+      <div class="filterbar">
+      <input type="text" id="searchInput" class="fb-search" placeholder="搜索 患者 / 电话 / 药店 / 药品">
+      <div class="ms" id="drugMs">
+        <button class="ms-btn" type="button" id="drugMsBtn">药品：全部 <span class="ms-caret">▾</span></button>
+        <div class="ms-panel hidden" id="drugMsPanel">
+          <div class="ms-tools"><span class="ms-count" id="drugMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act" data-act="none">清空</a></div>
+          <div class="ms-list" id="drugMsList"></div>
+        </div>
+      </div>
+      <div class="ms" id="pharmMs">
+        <button class="ms-btn" type="button" id="pharmMsBtn">药店：全部 <span class="ms-caret">▾</span></button>
+        <div class="ms-panel hidden" id="pharmMsPanel">
+          <div class="ms-tools"><span class="ms-count" id="pharmMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act" data-act="none">清空</a></div>
+          <div class="ms-list" id="pharmMsList"></div>
+        </div>
+      </div>
+      <span class="fb-date"><label>时间</label>
+      <input type="date" id="startDate"><span class="fb-sep">至</span>
+      <input type="date" id="endDate"></span>
+      <button class="btn ghost sm" id="clearBtn">清除筛选</button>
+      <span class="fb-export">
+        <button class="export" id="exportDesenBtn">导出脱敏明细</button>
+        <button class="export" id="exportPlainBtn">导出未脱敏明细</button>
+        <button class="export snap" id="snapshotDesenBtn">下载脱敏快照</button>
+        <button class="export snap" id="snapshotPlainBtn">下载不脱敏快照</button>
+      </span>
+    </div>
+    </div>
+    <div class="filterinfo" id="filterInfo"></div>
+
+    <!-- 明细头 -->
+    <div class="detail-head">
+      <div class="view-toggle">
+        <button id="viewDetailBtn" class="active">明细</button>
+        <button id="viewPatientBtn">患者聚合</button>
+      </div>
+      <div class="desen-tog">
+        <span class="dt-grp"><span class="dt-lbl">姓名</span><button class="dt-btn active" data-field="name" data-mode="mask">脱敏</button><button class="dt-btn" data-field="name" data-mode="plain">不脱敏</button></span>
+        <span class="dt-grp"><span class="dt-lbl">电话</span><button class="dt-btn active" data-field="phone" data-mode="mask">脱敏</button><button class="dt-btn" data-field="phone" data-mode="plain">不脱敏</button></span>
+      </div>
+      <span class="spacer"></span>
+      <button class="btn ghost sm" id="colBtn">列显隐</button>
+    </div>
+    <div class="col-panel hidden" id="colPanel"></div>
+
+    <!-- 明细表 -->
+    <div class="tbl-wrap" id="detailView">
+      <table>
+        <thead><tr id="thead"></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="empty hidden" id="empty">无匹配记录</div>
+    </div>
+
+    <!-- 患者聚合视图 -->
+    <div id="patientView" class="hidden"></div>
+
+    <!-- 分页 -->
+    <div class="pagination" id="pagination"></div>
+  </div>
+</div>
+
+<div class="modal-mask hidden" id="keyMask">
+  <div class="modal">
+    <h3>确认导出未脱敏明细</h3>
+    <p class="hint">将包含明文姓名、电话等个人信息，请确认接收方可信。</p>
+    <input type="password" id="keyInput" placeholder="输入任意内容以确认" autocomplete="off">
+    <div class="modal-err" id="keyErr"></div>
+    <div class="modal-btns">
+      <button class="btn ghost" id="keyCancel">取消</button>
+      <button class="btn" id="keyConfirm">确认导出</button>
+    </div>
+  </div>
+</div>
+
+<div id="loading" class="hidden"><div class="box"><div class="spin"></div><div class="txt" id="loadingTxt">正在解析…</div></div></div>
+
+<script src="vendor/xlsx.full.min.js"></script>
+<script>
+// 随访表格映射与状态归一化配置（浏览器端移植自 mapping_config.py）
+// 全部为纯函数 / 常量，无 DOM 依赖，可在浏览器与 Node 共用。
+
+const CANONICAL_FIELDS = [
+  "source_file", "source_type",
+  "patient_name", "patient_id", "phone", "gender", "age",
+  "followup_time", "task_type", "drug_product", "indication", "pharmacy",
+  "is_key_patient", "medication_status", "irregularity_subtype",
+  "stop_reduce_reason",
+  "adherence", "summary", "remarks",
+];
+
+const STATUS_TAXONOMY = ["规范用药", "不规范用药", "脱落停药", "其他"];
+const SUBTYPE_TAXONOMY = ["自行减量", "医嘱减量", "医嘱停药", "延迟/未按时用药", "其他不规范"];
+
+// 来源类型识别兜底：按顺序匹配「签名列」是否出现在表头中（关键字子串，抗尾标）
+const SIGNATURES = [
+  ["overdue_purchase", "据上次随访后，是否已按时购药？"],
+  ["enrollment", "用药周期状态"],
+  ["routine", "是否判定患者属于易脱落"],
+];
+
+// 关键字启发式映射（单值字段）
+const KEYWORD_RULES = [
+  ["patient_name",  ["姓名", "名字", "患者", "患者姓名", "会员姓名", "客户姓名", "name", "xm"]],
+  ["patient_id",    ["患者编号", "患者编码", "会员号", "编号", "编码"]],
+  ["phone",         ["电话", "手机", "联系", "phone", "tel"]],
+  ["gender",        ["性别", "sex", "gender"]],
+  ["age",           ["年龄", "岁", "age"]],
+  ["followup_time", ["随访时间", "随访日期", "购药日期", "执行时间", "计划执行",
+                     "记录时间", "回访日期", "日期", "时间"]],
+  ["drug_product",  ["药品名称", "药物", "药品", "产品", "商品"]],
+  ["indication",    ["适应症", "病种", "诊断", "病症"]],
+  ["pharmacy",      ["药店名称", "门店", "药房名称", "购药药店", "药店", "药房"]],
+  ["is_key_patient",["是否重点患者", "重点患者", "重点"]],
+  ["adherence",     ["用药依从性", "依从性"]],
+  ["summary",       ["随访小结", "小结", "随访记录"]],
+  ["task_type",     ["任务类型", "任务摘要", "服务摘要", "随访类型", "任务"]],
+  // —— 状态推导中间列（按来源关键字识别，不依赖具体列名）——
+  ["_status_period",    ["用药周期状态", "周期状态"]],
+  ["_nonstd_usage",     ["非标准用法用量的类型", "非标准用法", "非标准"]],
+  ["_purchased_on_time",["已按时购药", "按时购药"]],
+  ["_follow_confirm",   ["医生医嘱的确认", "按照医嘱服用", "医嘱的确认"]],
+  ["_is_dropout",       ["是否判定患者属于易脱落", "易脱落"]],
+  ["_dropout_reason",   ["判断为易脱落的原因", "易脱落的原因"]],
+  ["_reduce_reason",    ["减量的具体原因", "停药的具体原因"]],
+];
+
+// 多值字段：收集所有命中列（用于合并备注、合并根因）
+const KEYWORD_RULES_MULTI = [
+  ["remarks", [
+    "备注", "患者反馈", "用户反馈", "药师备注", "反馈",
+  ]],
+  ["stop_reduce_reason", [
+    "未按计划持续用药原因", "脱落/流失原因", "未购药的原因",
+    "未在门店购药的原因", "未遵医嘱", "未按计划",
+    "根本原因", "根因", "遵医嘱减量",
+  ]],
+];
+
+function normHeader(h) {
+  return String(h == null ? "" : h).replace(/\s+/g, "").toLowerCase();
+}
+
+function _cell(row, col) {
+  if (col == null) return null;
+  const v = row[col];
+  if (v == null) return null;
+  if (typeof v === "number" && Number.isNaN(v)) return null;
+  const s = String(v).trim();
+  return (s === "" || s === "nan" || s === "NaN" || s === "None") ? null : s;
+}
+
+function _gtext(row, colmap, field) {
+  let cols = colmap[field];
+  if (!cols) return "";
+  if (typeof cols === "string") cols = [cols];
+  const vals = cols.map(c => _cell(row, c)).filter(Boolean);
+  return vals.join("\n") || "";
+}
+
+function deriveStatus(sourceType, row, colmap) {
+  const g = f => _gtext(row, colmap, f);
+  const has = f => Boolean(g(f));
+
+  if (sourceType === "enrollment") {
+    const v = g("_status_period");
+    if (v === "按计划持续用药") return "规范用药";
+    if (v === "延迟用药" || v === "推迟购药" || v === "未按计划持续用药-不依从") return "不规范用药";
+    if (v === "停药----脱落" || v === "随访失败") return "脱落停药";
+    const adh = g("adherence") || "";
+    if (adh.includes("良好") || adh.includes("遵医嘱")) return "规范用药";
+    return "其他";
+  }
+  if (sourceType === "routine") {
+    const selfStop = g("stop_reduce_reason");
+    if (selfStop && selfStop.includes("停药")) return "脱落停药";
+    const isDropout = g("_is_dropout") === "是";
+    const nonstd = has("_nonstd_usage");
+    const reduceStop = has("stop_reduce_reason");
+    const follow = g("_follow_confirm");
+    if (isDropout || reduceStop || nonstd) return "不规范用药";
+    if (follow && follow !== "医生确认，按医嘱执行") return "不规范用药";
+    const summ = g("summary") || "";
+    if (summ.includes("足量") || summ.includes("按医嘱执行") ||
+       (summ.includes("用药规范") && !summ.includes("减量"))) return "规范用药";
+    // 兜底：已排除脱落/不规范且随访已完成（有小结）→ 规范；无小结才落「其他」
+    if (summ) return "规范用药";
+    return "其他";
+  }
+  if (sourceType === "overdue_purchase") {
+    const onTime = g("_purchased_on_time");
+    if (onTime === "否") return "不规范用药";
+    if (onTime === "是") return "规范用药";
+    if (has("stop_reduce_reason") || has("_reduce_reason")) return "不规范用药";
+    return "其他";
+  }
+  return "其他";
+}
+
+function deriveIrregularitySubtype(sourceType, row, colmap) {
+  const g = f => _gtext(row, colmap, f);
+  const has = f => Boolean(g(f));
+
+  if (sourceType === "routine") {
+    const t = g("_nonstd_usage");
+    if (t && t.includes("自行减量")) return "自行减量";
+    if (t && t.includes("医嘱减量")) return "医嘱减量";
+    if (t && t.includes("医嘱停药")) return "医嘱停药";
+    if (t && t.includes("自行停药")) return "其他不规范";
+    const dr = g("_dropout_reason");
+    if (dr) {
+      if (dr.includes("延迟") || dr.includes("未按时") || dr.includes("推迟")) return "延迟/未按时用药";
+      if (dr.includes("减量")) return "医嘱减量";
+      if (dr.includes("停药") || dr.includes("换药")) return "医嘱停药";
+      return "其他不规范";
+    }
+    return "其他不规范";
+  }
+  if (sourceType === "overdue_purchase") {
+    const reduceReason = g("_reduce_reason");
+    if (reduceReason && reduceReason.includes("自行减量")) return "自行减量";
+    if (reduceReason && reduceReason.includes("医嘱减量")) return "医嘱减量";
+    if (reduceReason && reduceReason.includes("停药")) return "医嘱停药";
+    if (has("stop_reduce_reason")) {
+      const rt = g("stop_reduce_reason");
+      if (rt && (rt.includes("未购药") || rt.includes("未在门店"))) return "延迟/未按时用药";
+      return "自行减量";
+    }
+    return "其他不规范";
+  }
+  if (sourceType === "enrollment") {
+    const reason = g("stop_reduce_reason");
+    const status = g("_status_period");
+    if (reason && (reason.includes("自行减少用药剂量") || (reason.includes("减量") && reason.includes("自行")))) return "自行减量";
+    if (reason && reason.includes("遵医嘱") && reason.includes("减量")) return "医嘱减量";
+    if (reason && reason.includes("停药")) return "医嘱停药";
+    if (reason && (reason.includes("依从性差") || reason.includes("未拨通"))) return "其他不规范";
+    if (reason && (reason.includes("购药不方便") || reason.includes("配送不方便"))) return "延迟/未按时用药";
+    if (status === "延迟用药" || status === "推迟购药") return "延迟/未按时用药";
+    return "其他不规范";
+  }
+  return "其他不规范";
+}
+
+function _rawStatusText(sourceType, row, colmap) {
+  const g = f => _gtext(row, colmap, f);
+  if (sourceType === "enrollment") return g("_status_period") || null;
+  if (sourceType === "routine") {
+    const t = g("_nonstd_usage");
+    if (t) return t;
+    if (g("_is_dropout") === "是") return "判定为易脱落";
+    const f = g("_follow_confirm");
+    if (f && f !== "医生确认，按医嘱执行") return f;
+    return null;
+  }
+  if (sourceType === "overdue_purchase") {
+    const v = g("_purchased_on_time");
+    if (v === "否") return "未按时购药";
+    if (v === "是") return "已按时购药";
+    return v || null;
+  }
+  return null;
+}
+
+function _rawSubtypeText(sourceType, row, colmap) {
+  const g = f => _gtext(row, colmap, f);
+  if (sourceType === "routine") {
+    const parts = [g("_nonstd_usage"), g("_dropout_reason")].filter(Boolean);
+    return parts.length ? Array.from(new Set(parts)).join("；") : null;
+  }
+  if (sourceType === "overdue_purchase") return g("_reduce_reason") || g("stop_reduce_reason") || null;
+  if (sourceType === "enrollment") return g("stop_reduce_reason") || null;
+  return null;
+}
+
+// 浏览器端：导出到全局，供 pipeline.js / app.js 使用（非模块化脚本共享词法作用域）
+if (typeof window !== "undefined") {
+  window.Mapping = { CANONICAL_FIELDS, STATUS_TAXONOMY, SUBTYPE_TAXONOMY, SIGNATURES,
+    KEYWORD_RULES, KEYWORD_RULES_MULTI, normHeader, _cell, _gtext,
+    deriveStatus, deriveIrregularitySubtype, _rawStatusText, _rawSubtypeText };
+}
+
+</script>
+<script>
+// 随访表格数据处理 pipeline（浏览器端移植自 pipeline.py）
+// 用 SheetJS 解析 Excel，关键字映射 + 状态推导 + 脱敏。无 DOM 依赖（XLSX 为全局变量）。
+
+(function () {
+const M = (typeof window !== "undefined" ? window : globalThis).Mapping;
+const XLSX = (typeof window !== "undefined" ? window : globalThis).XLSX;
+
+function normHeader(h) { return M.normHeader(h); }
+
+function asList(v) { return v == null ? [] : (Array.isArray(v) ? v : [v]); }
+
+// 把单元格值清洗为字符串：Date 保留时分，null/空 -> null
+function cellStr(v) {
+  if (v == null) return null;
+  if (v instanceof Date) return fmtDateTime(v);
+  const s = String(v).trim();
+  if (s === "" || s === "nan" || s === "NaN" || s === "None") return null;
+  return s;
+}
+function cellStrSafe(v) { return cellStr(v) == null ? "" : cellStr(v); }
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+function fmtDateTime(d) {
+  const Y = d.getFullYear(), Mo = pad2(d.getMonth() + 1), D = pad2(d.getDate());
+  const h = pad2(d.getHours()), mi = pad2(d.getMinutes()), s = pad2(d.getSeconds());
+  const date = `${Y}-${Mo}-${D}`;
+  return (h === "00" && mi === "00" && s === "00") ? date : `${date} ${h}:${mi}:${s}`;
+}
+
+// 单值字段关键字启发式映射；followup_time 需区分「执行时间」与「计划执行时间」
+function mapColumns(rawCols) {
+  const assigned = {};
+  const used = new Set();
+  for (const [field, kws] of M.KEYWORD_RULES) {
+    let cand;
+    if (field === "followup_time") {
+      const clean = rawCols.filter(rc => !used.has(rc) &&
+        normHeader(rc).includes("执行时间") && !normHeader(rc).includes("计划"));
+      cand = (clean.length ? clean : rawCols)
+        .filter(rc => !used.has(rc))
+        .map(rc => [rc, normHeader(rc)]);
+    } else {
+      cand = rawCols.filter(rc => !used.has(rc)).map(rc => [rc, normHeader(rc)]);
+    }
+    let best = null, bestHits = 0;
+    for (const [rc, nrc] of cand) {
+      let hits = 0;
+      for (const kw of kws) if (nrc.includes(kw)) hits++;
+      if (hits > 0 && hits > bestHits) { bestHits = hits; best = rc; }
+    }
+    if (best !== null) { assigned[field] = best; used.add(best); }
+  }
+  for (const [field, kws] of M.KEYWORD_RULES_MULTI) {
+    const cols = rawCols.filter(rc => !used.has(rc) && kws.some(kw => normHeader(rc).includes(kw)));
+    if (cols.length) { assigned[field] = cols; cols.forEach(c => used.add(c)); }
+  }
+  return assigned;
+}
+
+function detectSource(columns, colmap) {
+  if (colmap) {
+    if (colmap._purchased_on_time) return "overdue_purchase";
+    if (colmap._status_period) return "enrollment";
+    if (colmap._nonstd_usage || colmap._is_dropout || colmap._follow_confirm) return "routine";
+  }
+  const normCols = columns.map(normHeader);
+  for (const [stype, sig] of M.SIGNATURES) {
+    const nsig = normHeader(sig);
+    if (normCols.some(c => c.includes(nsig))) return stype;
+  }
+  return "unknown";
+}
+
+// 在原始数组（array-of-arrays，已转字符串）的前 maxScan 行中找最像表头的一行
+function detectHeaderRow(aoaStr, maxScan = 15) {
+  if (!aoaStr || !aoaStr.length) return 0;
+  const kwPools = [];
+  for (const [, kws] of M.KEYWORD_RULES) kwPools.push(...kws);
+  for (const [, kws] of M.KEYWORD_RULES_MULTI) kwPools.push(...kws);
+  for (const [, sig] of M.SIGNATURES) kwPools.push(sig);
+  const kwLower = kwPools.map(k => k.toLowerCase());
+
+  let bestRow = 0, bestScore = -1;
+  const scan = Math.min(maxScan, aoaStr.length);
+  for (let i = 0; i < scan; i++) {
+    const row = aoaStr[i];
+    const cells = row.map(c => String(c == null ? "" : c).trim())
+      .filter(c => c !== "" && c !== "nan" && c !== "None");
+    if (!cells.length) continue;
+    let hit = 0;
+    for (const c of cells) {
+      const cl = c.toLowerCase();
+      if (kwLower.some(kw => cl.includes(kw))) hit++;
+    }
+    const ratio = cells.length / Math.max(1, row.length);
+    const score = hit * 3 + ratio * 2;
+    if (score > bestScore) { bestScore = score; bestRow = i; }
+  }
+  return bestRow;
+}
+
+// 把一行数组转成 列名->清洗后字符串 的对象
+function rowToObj(cols, r) {
+  const o = {};
+  cols.forEach((c, i) => { o[c] = cellStr(r[i]); });
+  return o;
+}
+
+function normalizeRows(rows, cols, sourceFile, sheetName) {
+  const colmap = mapColumns(cols);
+  const sourceType = detectSource(cols, colmap);
+  const records = [];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const rid = `${sourceFile}::${sourceType}::${sheetName || "sheet"}::${i}`;
+    const rec = { source_file: sourceFile, source_type: sourceType, _row_id: rid };
+    for (const field of M.CANONICAL_FIELDS) {
+      if (["source_file", "source_type", "remarks", "medication_status",
+           "irregularity_subtype", "stop_reduce_reason"].includes(field)) continue;
+      const col = colmap[field];
+      rec[field] = col ? cellStr(row[col]) : null;
+    }
+    // 备注：合并「自由文本」列 + 随访小结
+    let rcols = asList(colmap.remarks);
+    if (colmap.summary) rcols = rcols.concat([colmap.summary]);
+    rcols = rcols.filter(c => cols.includes(c));
+    const parts = [];
+    for (const c of rcols) { const tv = cellStr(row[c]); if (tv) parts.push(tv); }
+    rec.remarks = parts.length ? parts.join("\n") : null;
+    // 停药/减量根本原因
+    const reasonCols = asList(colmap.stop_reduce_reason).filter(c => cols.includes(c));
+    const rparts = []; const seen = new Set();
+    for (const c of reasonCols) {
+      const tv = cellStr(row[c]);
+      if (tv && !seen.has(tv)) { seen.add(tv); rparts.push(tv); }
+    }
+    rec.stop_reduce_reason = rparts.length ? rparts.join("\n") : null;
+    // 用药状态 + 不规范下钻
+    const status = M.deriveStatus(sourceType, row, colmap);
+    rec.medication_status = status;
+    rec.medication_status_raw = M._rawStatusText(sourceType, row, colmap) || status;
+    const sub = status === "不规范用药" ? M.deriveIrregularitySubtype(sourceType, row, colmap) : null;
+    rec.irregularity_subtype = sub;
+    rec.irregularity_subtype_raw = sub ? M._rawSubtypeText(sourceType, row, colmap) : null;
+    records.push(rec);
+  }
+  return records;
+}
+
+async function loadWorkbook(file) {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(new Uint8Array(buf), { type: "array", cellDates: true });
+  const out = [];
+  for (const name of wb.SheetNames) {
+    const sheet = wb.Sheets[name];
+    const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null, cellDates: true });
+    const aoaStr = aoa.map(r => r.map(cellStrSafe));
+    const hr = detectHeaderRow(aoaStr);
+    let cols, rows;
+    if (hr === 0) {
+      cols = aoa[0].map((c, i) => String(c == null ? "" : c).trim() || `col_${i}`);
+      rows = aoa.slice(1).map(r => rowToObj(cols, r));
+    } else {
+      cols = aoa[hr].map((c, i) => String(c == null ? "" : c).trim() || `col_${i}`);
+      rows = aoa.slice(hr + 1).map(r => rowToObj(cols, r));
+    }
+    out.push({ source_file: file.name, sheet_name: name, cols, rows });
+  }
+  return out;
+}
+
+async function processFiles(files) {
+  let records = [];
+  for (const f of files) {
+    try {
+      const sheets = await loadWorkbook(f);
+      for (const sh of sheets) {
+        records = records.concat(normalizeRows(sh.rows, sh.cols, sh.source_file, sh.sheet_name));
+      }
+    } catch (e) {
+      console.warn("处理文件失败", f.name, e);
+    }
+  }
+  return records;
+}
+
+// 脱敏姓名与电话（展示层默认只给脱敏值）
+function desensitize(rec, namePlain = false, phonePlain = false) {
+  const out = Object.assign({}, rec);
+  const name = out.patient_name;
+  if (name && !namePlain) {
+    out.patient_name = name.length >= 2 ? name[0] + "**" : "**";
+  }
+  const phone = out.phone;
+  if (phone && !phonePlain) {
+    const s = String(phone);
+    const digits = s.replace(/\D/g, "");
+    if (digits.length >= 7) out.phone = digits.slice(0, 3) + "****" + digits.slice(-4);
+    else out.phone = s.replace(/\d/g, "*");
+  }
+  return out;
+}
+
+if (typeof window !== "undefined") {
+  window.Pipeline = { mapColumns, detectSource, detectHeaderRow, normalizeRows,
+    loadWorkbook, processFiles, desensitize, cellStr, fmtDateTime };
+}
+})();
+
+</script>
+<script>
+// 随访数据看板（纯本地版）前端编排层
+// 全部计算在浏览器内完成：Excel 解析(pipeline.js) → 归一化 → 本地聚合 → 渲染。
+// 无后端、无网络请求；数据从不离开本机。
+
+(function () {
+const M = window.Mapping;
+const STATUS_TAXONOMY = M.STATUS_TAXONOMY;
+const SUBTYPE_TAXONOMY = M.SUBTYPE_TAXONOMY;
+const EXPORT_COLS = [
+  ["patient_name", "患者"],
+  ["phone", "电话"],
+  ["gender", "性别"],
+  ["age", "年龄"],
+  ["followup_time", "随访时间"],
+  ["drug_product", "药品"],
+  ["indication", "适应症"],
+  ["pharmacy", "药店"],
+  ["medication_status_raw", "用药状态"],
+  ["irregularity_subtype_raw", "不规范类型"],
+  ["stop_reduce_reason", "停药/减量根本原因"],
+  ["remarks", "备注"],
+];
+
+// 内存存储（数据不出本机）。records=全部记录；files=已加载文件清单（文件管理）；seq=自增编号。
+const STORE = { records: [], files: [], seq: 0 };
+let pendingFiles = [];          // 待「开始分析」的 File 列表
+let SNAP_MODE = false;          // 是否为快照打开模式（只读）
+
+const TAXONOMY = STATUS_TAXONOMY;
+const SRC_LABEL = { routine: "日常随访", enrollment: "入组", overdue_purchase: "超期未购药", unknown: "未知" };
+const STATUS_COLOR = { "规范用药": "#0f9d6b", "不规范用药": "#e03131", "脱落停药": "#e8590c", "其他": "#868e96" };
+const DETAIL = [["patient_name", "患者"], ["phone", "电话"], ["gender", "性别"], ["age", "年龄"],
+  ["followup_time", "随访时间"], ["drug_product", "药品"], ["indication", "适应症"],
+  ["pharmacy", "药店"], ["medication_status_raw", "用药状态"],
+  ["irregularity_subtype", "不规范类型"],
+  ["stop_reduce_reason", "停药/减量根本原因"], ["remarks", "备注"]];
+
+const state = { status: new Set(), subtype: null, drugs: new Set(), pharmacies: new Set(), start: null, end: null,
+  q: "", view: "detail", page: 1, pageSize: 50, hiddenCols: new Set(),
+  plainName: false, plainPhone: false };
+let CURRENT = { summary: null, global: null };
+let DATA = { rows: [], patients: [] };
+
+const $ = s => document.querySelector(s);
+const drop = $("#drop"), fileInput = $("#fileInput");
+
+/* ============ 工具函数 ============ */
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+function fmtSize(n) {
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+  return (n / 1024 / 1024).toFixed(2) + " MB";
+}
+function showLoading(txt) { $("#loadingTxt").textContent = txt || "正在处理…"; $("#loading").classList.remove("hidden"); }
+function hideLoading() { $("#loading").classList.add("hidden"); }
+function download(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(a.href);
+}
+function cleanRec(r) {
+  const c = Object.assign({}, r);
+  delete c.source_file; delete c._file_id; delete c._file_label; delete c._row_id;
+  return c;
+}
+
+/* ============ 本地数据层（移植自 app.py） ============ */
+function _extract_date(s) {
+  if (!s) return null;
+  s = String(s).trim();
+  if (s.length >= 10 && s[4] === "-" && s[7] === "-") return s.slice(0, 10);
+  return null;
+}
+function _month(s) {
+  const d = _extract_date(s);
+  return d ? d.slice(0, 7) : null;
+}
+function countBy(arr, keyFn) {
+  const m = {};
+  for (const x of arr) { const k = keyFn(x); m[k] = (m[k] || 0) + 1; }
+  return m;
+}
+function build_summary(records) {
+  const months = records.map(r => _month(r.followup_time)).filter(Boolean).sort();
+  const by_month = {};
+  for (const m of months) by_month[m] = (by_month[m] || 0) + 1;
+  return {
+    total: records.length,
+    by_status: countBy(records, r => r.medication_status),
+    by_subtype: countBy(records.filter(r => r.irregularity_subtype), r => r.irregularity_subtype),
+    by_source: countBy(records, r => r.source_type),
+    by_drug: countBy(records, r => r.drug_product || "未知"),
+    by_pharmacy: countBy(records, r => r.pharmacy || "未知"),
+    by_month,
+    taxonomy: STATUS_TAXONOMY,
+    subtypes: SUBTYPE_TAXONOMY,
+  };
+}
+// kw: {status:[]|null, subtype, src, drug:[]|null, pharmacy:[]|null, start, end, q}
+function filter_records(records, kw) {
+  let recs = records;
+  const { status, subtype, src, drug, pharmacy, start, end, q } = kw;
+  if (status && status.length) {
+    const sset = new Set(status);
+    recs = recs.filter(r => sset.has(r.medication_status));
+  }
+  if (subtype) recs = recs.filter(r => r.irregularity_subtype === subtype);
+  if (src) recs = recs.filter(r => r.source_type === src);
+  if (drug && drug.length) {
+    const dset = new Set(drug);
+    recs = recs.filter(r => dset.has(r.drug_product || "未知"));
+  }
+  if (pharmacy && pharmacy.length) {
+    const pset = new Set(pharmacy);
+    recs = recs.filter(r => pset.has(r.pharmacy || "未知"));
+  }
+  if (q) {
+    const ql = q.trim().toLowerCase();
+    if (ql) {
+      recs = recs.filter(r => {
+        for (const f of ["patient_name", "phone", "pharmacy", "drug_product"]) {
+          const v = r[f];
+          if (v && String(v).toLowerCase().includes(ql)) return true;
+        }
+        return false;
+      });
+    }
+  }
+  if (start || end) {
+    const kept = [];
+    for (const r of recs) {
+      const d = _extract_date(r.followup_time);
+      if (d == null) continue;
+      if (start && d < start) continue;
+      if (end && d > end) continue;
+      kept.push(r);
+    }
+    recs = kept;
+  }
+  return recs;
+}
+// 分面统计：exclude 维度不参与过滤（使各筛选项互不遮蔽）
+function _facet(records, kw, exclude) {
+  const k = Object.assign({}, kw);
+  if (exclude === "status") k.status = null;
+  else if (exclude === "subtype") k.subtype = null;
+  else if (exclude === "source") k.src = null;
+  else if (exclude === "drug") k.drug = null;
+  else if (exclude === "pharmacy") k.pharmacy = null;
+  else if (exclude === "time") { k.start = null; k.end = null; }
+  return filter_records(records, k);
+}
+function currentKw() {
+  return {
+    status: state.status.size ? [...state.status] : null,
+    subtype: state.subtype || null,
+    src: null,
+    drug: state.drugs.size ? [...state.drugs] : null,
+    pharmacy: state.pharmacies.size ? [...state.pharmacies] : null,
+    start: state.start || null,
+    end: state.end || null,
+    q: state.q || null,
+  };
+}
+// 镜像 /api/summary：总记录数按全部筛选，各维度按「除自身外」筛选（faceted）
+function summaryLocal(kw) {
+  const base = build_summary(_facet(STORE.records, kw));
+  base.by_status = build_summary(_facet(STORE.records, kw, "status")).by_status;
+  base.by_subtype = build_summary(_facet(STORE.records, kw, "subtype")).by_subtype;
+  base.by_source = build_summary(_facet(STORE.records, kw, "source")).by_source;
+  base.by_drug = build_summary(_facet(STORE.records, kw, "drug")).by_drug;
+  base.by_pharmacy = build_summary(_facet(STORE.records, kw, "pharmacy")).by_pharmacy;
+  base.by_month = build_summary(_facet(STORE.records, kw, "time")).by_month;
+  return base;
+}
+// 镜像 /api/patients：按 真实姓名+电话 分组；status/时间仅作「名单入选」门槛，不裁剪卡内记录
+function patientsAgg(records, kw) {
+  const status_sel = kw.status;
+  const recs = filter_records(records, {
+    status: null, subtype: kw.subtype, src: kw.src, drug: kw.drug, pharmacy: kw.pharmacy,
+    start: null, end: null, q: kw.q,
+  });
+  const start = kw.start, end = kw.end;
+  const pn = state.plainName, pp = state.plainPhone;
+  const groups = {};
+  for (const r of recs) {
+    const key = (r.patient_name || "") + "\u0000" + (r.phone || "");
+    (groups[key] = groups[key] || []).push(r);
+  }
+  const out = [];
+  for (const key in groups) {
+    const rs = groups[key];
+    const dates = rs.map(x => _extract_date(x.followup_time)).filter(Boolean);
+    const latest = dates.length ? dates.reduce((a, b) => a > b ? a : b) : "";
+    if (start || end) {
+      if (!latest) continue;
+      if (start && latest < start) continue;
+      if (end && latest > end) continue;
+    }
+    if (status_sel && status_sel.length) {
+      const sset = new Set(status_sel);
+      if (!rs.some(r => sset.has(r.medication_status))) continue;
+    }
+    const name = rs[0].patient_name || "";
+    const phone = rs[0].phone || "";
+    const maskedName = pn ? name : (name.length >= 2 ? name[0] + "**" : (name ? "**" : "(未知)"));
+    const digits = String(phone).replace(/\D/g, "");
+    const maskedPhone = pp ? phone : (digits.length >= 7 ? digits.slice(0, 3) + "****" + digits.slice(-4) : phone);
+    out.push({
+      patient_name: maskedName,
+      phone: maskedPhone,
+      count: rs.length,
+      by_status: countBy(rs, r => r.medication_status),
+      latest,
+      drugs: [...new Set(rs.map(x => x.drug_product).filter(Boolean))].sort(),
+      records: rs.map(r => window.Pipeline.desensitize(r, pn, pp)),
+    });
+  }
+  out.sort((a, b) => (b.count - a.count) || (a.patient_name < b.patient_name ? -1 : 1));
+  return out;
+}
+
+/* ============ 渲染层（移植自 dashboard.html，移除 fetch） ============ */
+function renderSummary(d) {
+  const total = d.total;
+  let html = `<div class="total"><div class="n">${total}</div><div class="l">总记录数</div></div>`;
+  for (const s of TAXONOMY) {
+    const n = (d.by_status && d.by_status[s]) || 0;
+    const active = state.status.has(s) ? "active" : "";
+    html += `<div class="card c-${s} ${active}" data-status="${s}" title="点击筛选「${s}」，再次点击取消">
+      <span class="dot"></span><div class="n">${n}</div><div class="l">${s}</div><span class="cue">点选</span></div>`;
+  }
+  $("#summary").innerHTML = html;
+  document.querySelectorAll(".card").forEach(c => {
+    c.onclick = () => {
+      const s = c.dataset.status;
+      if (state.status.has(s)) state.status.delete(s); else state.status.add(s);
+      if (!state.status.has("不规范用药")) state.subtype = null;
+      state.page = 1;
+      refresh();
+    };
+  });
+  buildMs("drugMs", d.by_drug, state.drugs, "药品");
+  buildMs("pharmMs", d.by_pharmacy, state.pharmacies, "药店");
+  renderSubtypeBar();
+  updateFilterInfo();
+}
+
+function buildMs(msId, data, stateSet, label) {
+  const entries = Object.entries(data || {});
+  const list = $("#" + msId + "List");
+  list.innerHTML = entries.map(([k, v]) =>
+    `<label><input type="checkbox" value="${esc(k)}" ${stateSet.has(k) ? "checked" : ""}><span>${esc(k)}</span><span class="ms-cnt">${v}</span></label>`).join("");
+  list.querySelectorAll("input").forEach(cb => {
+    cb.onchange = () => { if (cb.checked) stateSet.add(cb.value); else stateSet.delete(cb.value); state.page = 1; refresh(); };
+  });
+  const panel = $("#" + msId + "Panel");
+  let search = panel.querySelector(".ms-search");
+  if (!search) {
+    search = document.createElement("input");
+    search.className = "ms-search";
+    search.placeholder = "输入关键字检索…";
+    list.parentNode.insertBefore(search, list);
+  }
+  const applyFilter = () => {
+    const q = search.value.trim().toLowerCase();
+    list.querySelectorAll("label").forEach(lb => {
+      const k = lb.querySelector("input").value;
+      const hit = !q || k.toLowerCase().includes(q) || stateSet.has(k);
+      lb.style.display = hit ? "" : "none";
+    });
+  };
+  search.oninput = applyFilter;
+  applyFilter();
+  panel.querySelectorAll(".ms-act").forEach(a => a.onclick = () => {
+    if (a.dataset.act === "all") entries.forEach(([k]) => stateSet.add(k)); else stateSet.clear();
+    state.page = 1; refresh();
+  });
+  const n = stateSet.size, tot = entries.length;
+  const txt = (n === 0 || n === tot) ? "全部" : (n + "项");
+  $("#" + msId + "Btn").innerHTML = `${label}：${txt} <span class="ms-caret">▾</span>`;
+  $("#" + msId + "Btn").classList.toggle("has-sel", n > 0 && n < tot);
+  $("#" + msId + "Count").textContent = n === 0 ? "未选（=全部）" : ("已选 " + n + "/" + tot);
+}
+
+function renderGlobal(d) {
+  if (!d) return;
+  const stCards = TAXONOMY.map(s =>
+    `<div class="g-card ${s}"><span class="g-num">${(d.by_status && d.by_status[s]) || 0}</span><span class="g-cap">${s}</span></div>`).join("");
+  const srcCards = Object.entries(d.by_source || {}).map(([k, v]) =>
+    `<div class="g-card src"><span class="g-num">${v}</span><span class="g-cap">${SRC_LABEL[k] || k}</span></div>`).join("");
+  $("#globalRow").innerHTML =
+    `<div class="g-head"><span class="g-title">全量统计</span><span class="g-sub">基于全部上传数据 · 不随筛选变化</span></div>` +
+    `<div class="g-grid">${stCards}${srcCards}` +
+    `<div class="g-card total"><span class="g-num">${d.total || 0}</span><span class="g-cap">合计</span></div>` +
+    `</div>`;
+}
+
+function renderCharts(d) {
+  $("#donutChart").innerHTML = donutChart(d.by_status || {});
+  $("#drugChart").innerHTML = barChart(d.by_drug || {});
+  $("#trendChart").innerHTML = lineChart(d.by_month || {});
+}
+function donutChart(data) {
+  const entries = TAXONOMY.map(s => [s, data[s] || 0]).filter(([, v]) => v > 0);
+  const total = entries.reduce((a, [, v]) => a + v, 0);
+  if (!total) return '<div class="chart-empty">暂无数据</div>';
+  const cx = 70, cy = 70, r = 54, ir = 31;
+  let angle = -Math.PI / 2, paths = "";
+  entries.forEach(([k, v]) => {
+    const frac = v / total, a2 = angle + frac * 2 * Math.PI, large = frac > 0.5 ? 1 : 0;
+    const x1 = cx + r * Math.cos(angle), y1 = cy + r * Math.sin(angle);
+    const x2 = cx + r * Math.cos(a2), y2 = cy + r * Math.sin(a2);
+    const x3 = cx + ir * Math.cos(a2), y3 = cy + ir * Math.sin(a2);
+    const x4 = cx + ir * Math.cos(angle), y4 = cy + ir * Math.sin(angle);
+    paths += `<path d="M${x1.toFixed(1)},${y1.toFixed(1)} A${r},${r} 0 ${large} 1 ${x2.toFixed(1)},${y2.toFixed(1)} L${x3.toFixed(1)},${y3.toFixed(1)} A${ir},${ir} 0 ${large} 0 ${x4.toFixed(1)},${y4.toFixed(1)} Z" fill="${STATUS_COLOR[k]}"><title>${k} ${v}</title></path>`;
+    angle = a2;
+  });
+  const legend = entries.map(([k, v]) =>
+    `<div class="lg-item"><span class="lg-dot" style="background:${STATUS_COLOR[k]}"></span>${k} ${v}</div>`).join("");
+  return `<div class="donut-flex"><svg viewBox="0 0 140 140" width="118" height="118">${paths}<text x="70" y="76" text-anchor="middle" font-size="19" font-weight="700" fill="#1f2937">${total}</text></svg><div class="lg">${legend}</div></div>`;
+}
+function barChart(data) {
+  const entries = Object.entries(data).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  if (!entries.length) return '<div class="chart-empty">暂无数据</div>';
+  const max = Math.max(...entries.map(e => e[1]));
+  const rows = entries.map(([k, v]) => {
+    const w = Math.max(2, Math.round(v / max * 100));
+    const lbl = k.length > 7 ? k.slice(0, 7) + "…" : k;
+    return `<div class="bar-row"><span class="bar-label" title="${esc(k)}">${esc(lbl)}</span><span class="bar-track"><span class="bar-fill" style="width:${w}%"></span></span><span class="bar-val">${v}</span></div>`;
+  }).join("");
+  return `<div class="bars">${rows}</div>`;
+}
+function lineChart(data) {
+  const entries = Object.entries(data);
+  if (!entries.length) return '<div class="chart-empty">暂无数据</div>';
+  const W = 320, H = 120, P = 26;
+  const max = Math.max(...entries.map(e => e[1]), 1);
+  const n = entries.length;
+  const X = i => n === 1 ? W / 2 : P + i * (W - 2 * P) / (n - 1);
+  const Y = v => H - P - (v / max) * (H - 2 * P);
+  const pts = entries.map(([, v], i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
+  const dots = entries.map(([k, v], i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3" fill="#3b5bdb"><title>${k}: ${v}条</title></circle>`).join("");
+  const step = Math.ceil(n / 8);
+  const labels = entries.map(([k], i) => (i % step === 0 || i === n - 1) ? `<text x="${X(i).toFixed(1)}" y="${H - 8}" font-size="9" text-anchor="middle" fill="#868e96">${k.slice(2)}</text>` : "").join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="120"><polyline points="${pts}" fill="none" stroke="#3b5bdb" stroke-width="2"/>${dots}${labels}</svg>`;
+}
+
+function renderSubtypeBar() {
+  const bar = $("#subtypeBar");
+  if (!state.status.has("不规范用药")) { bar.classList.add("hidden"); return; }
+  const counts = (CURRENT.summary && CURRENT.summary.by_subtype) || {};
+  let html = "";
+  (CURRENT.summary.subtypes || []).forEach(k => {
+    const n = counts[k] || 0;
+    if (!n) return;
+    const act = state.subtype === k ? "active" : "";
+    html += `<span class="chip ${act}" data-sub="${k}">${k} (${n})</span>`;
+  });
+  $("#subtypeChips").innerHTML = html;
+  bar.classList.remove("hidden");
+  document.querySelectorAll("#subtypeChips .chip").forEach(c => c.onclick = () => {
+    const k = c.dataset.sub; state.subtype = (state.subtype === k) ? null : k; state.page = 1; refresh();
+  });
+}
+
+function updateFilterInfo() {
+  const parts = [];
+  if (state.q) parts.push("搜索=" + state.q);
+  if (state.status.size) parts.push("用药状态=" + [...state.status].join("/"));
+  if (state.subtype) parts.push("下钻=" + state.subtype);
+  if (state.drugs.size) parts.push("药品=" + state.drugs.size + "项");
+  if (state.pharmacies.size) parts.push("药店=" + state.pharmacies.size + "项");
+  if (state.start || state.end) parts.push("时间=" + ((state.start || "…") + "~" + (state.end || "…")));
+  $("#filterInfo").textContent = parts.length ? ("筛选：" + parts.join(" · ")) : "";
+}
+
+// 文件管理
+function renderFiles(files) {
+  $("#fileChips").innerHTML = (files || []).map(f =>
+    `<span class="file-chip">${esc(f.label)} (${f.count})<span class="fx" data-fid="${f.id}" title="删除该文件">×</span></span>`).join("");
+  document.querySelectorAll(".file-chip .fx").forEach(x => x.onclick = () => {
+    if (!confirm("确定删除该文件的全部记录？")) return;
+    const fid = x.dataset.fid;
+    STORE.records = STORE.records.filter(r => r._file_id !== fid);
+    STORE.files = STORE.files.filter(f => f.id !== fid);
+    CURRENT.global = build_summary(STORE.records);
+    renderGlobal(CURRENT.global);
+    renderFiles(STORE.files);
+    state.page = 1;
+    refresh();
+  });
+}
+
+const visibleCols = () => DETAIL.filter(([key]) => !state.hiddenCols.has(key));
+
+function renderDetail() {
+  const cols = visibleCols();
+  $("#thead").innerHTML = cols.map(([, label]) => `<th>${label}</th>`).join("");
+  const total = DATA.rows.length;
+  const pages = Math.max(1, Math.ceil(total / state.pageSize));
+  if (state.page > pages) state.page = pages;
+  const start = (state.page - 1) * state.pageSize;
+  const rows = DATA.rows.slice(start, start + state.pageSize);
+  const tb = $("#tbody");
+  if (!total) { tb.innerHTML = ""; $("#empty").classList.remove("hidden"); }
+  else {
+    $("#empty").classList.add("hidden");
+    tb.innerHTML = rows.map((rec, idx) => rowHtml(rec, cols, start + idx)).join("");
+  }
+  tb.querySelectorAll("tr.data-row").forEach(tr => {
+    tr.onclick = () => {
+      const rec = DATA.rows[+tr.dataset.idx];
+      const next = tr.nextElementSibling;
+      if (next && next.classList.contains("expand-row")) { next.remove(); return; }
+      tb.querySelectorAll("tr.expand-row").forEach(x => x.remove());
+      tr.insertAdjacentHTML("afterend", expandHtml(rec, cols.length));
+    };
+  });
+  renderPagination(total);
+}
+function rowHtml(rec, cols, idx) {
+  return `<tr class="data-row" data-idx="${idx}">` + cols.map(([key]) => {
+    let v = rec[key] || "";
+    if (key === "medication_status_raw") {
+      const norm = rec["medication_status"] || "";
+      const txt = v || norm;
+      return `<td><span class="tag ${norm}">${esc(txt)}</span></td>`;
+    }
+    if (key === "irregularity_subtype") {
+      const raw = rec["irregularity_subtype_raw"] || v || "";
+      if (!raw) return `<td></td>`;
+      return `<td><div class="cell-clip">${esc(raw)}</div></td>`;
+    }
+    if (key === "remarks" || key === "stop_reduce_reason") return `<td><div class="cell-clip">${esc(v)}</div></td>`;
+    return `<td>${esc(v)}</td>`;
+  }).join("") + "</tr>";
+}
+function expandHtml(rec, colspan) {
+  const sec = (lbl, val) => val ? `<div><span class="eb-lbl">${lbl}：</span>${esc(val)}</div>` : "";
+  return `<tr class="expand-row"><td colspan="${colspan}"><div class="expand-box">`
+    + sec("备注", rec.remarks)
+    + sec("停药/减量根本原因", rec.stop_reduce_reason)
+    + sec("不规范类型(原文)", rec.irregularity_subtype_raw || rec.irregularity_subtype)
+    + sec("随访小结", rec.summary)
+    + `</div></td></tr>`;
+}
+
+function renderPatients() {
+  const total = DATA.patients.length;
+  const pages = Math.max(1, Math.ceil(total / state.pageSize));
+  if (state.page > pages) state.page = pages;
+  const start = (state.page - 1) * state.pageSize;
+  const pats = DATA.patients.slice(start, start + state.pageSize);
+  const pv = $("#patientView");
+  if (!total) { pv.innerHTML = '<div class="empty">无匹配患者</div>'; }
+  else {
+    pv.innerHTML = pats.map((p, i) => patCardHtml(p, start + i)).join("");
+    pv.querySelectorAll(".pat-head").forEach(h => h.onclick = () => {
+      const body = h.nextElementSibling;
+      body.classList.toggle("hidden");
+      h.querySelector(".pat-arrow").textContent = body.classList.contains("hidden") ? "▸" : "▾";
+    });
+  }
+  renderPagination(total);
+}
+function patCardHtml(p, idx) {
+  const tags = Object.entries(p.by_status || {}).map(([s, n]) => `<span class="tag ${s}">${s} ${n}</span>`).join("");
+  const recs = (p.records || []).slice().sort((a, b) => {
+    const ta = a.followup_time || "", tb = b.followup_time || "";
+    return tb.localeCompare(ta);
+  });
+  const recRows = recs.map(r => {
+    const norm = r["medication_status"] || "";
+    const sub = r["irregularity_subtype_raw"] || r["irregularity_subtype"] || "";
+    return `<tr><td>${esc(r.followup_time || "")}</td><td>${esc(r.drug_product || "")}</td><td>${esc(r.pharmacy || "")}</td>`
+      + `<td><span class="tag ${norm}">${esc(r.medication_status_raw || norm)}</span></td>`
+      + `<td style="white-space:pre-wrap">${esc(sub)}</td><td style="white-space:pre-wrap;max-width:280px">${esc(r.remarks || "")}</td></tr>`;
+  }).join("");
+  return `<div class="pat-card">
+    <div class="pat-head">
+      <span class="pat-name">${esc(p.patient_name)}</span>
+      <span class="pat-phone">${esc(p.phone || "")}</span>
+      <span class="pat-tags">${tags}</span>
+      <span class="pat-count">${p.count} 次随访 · 最近 ${esc(p.latest || "—")}</span>
+      <span class="pat-arrow">▸</span>
+    </div>
+    <div class="pat-body hidden">
+      <table class="mini-table"><thead><tr><th>随访时间</th><th>药品</th><th>药店</th><th>用药状态</th><th>不规范类型</th><th>备注</th></tr></thead>
+      <tbody>${recRows}</tbody></table>
+    </div>
+  </div>`;
+}
+
+function renderPagination(total) {
+  const pages = Math.max(1, Math.ceil(total / state.pageSize));
+  $("#pagination").innerHTML = `
+    <span>共 ${total} 条 · 每页 ${state.pageSize} 条 · 第 ${state.page}/${pages} 页</span>
+    <span class="pg-btns">
+      <button class="btn ghost sm" id="prevPg" ${state.page <= 1 ? "disabled" : ""}>‹ 上一页</button>
+      <button class="btn ghost sm" id="nextPg" ${state.page >= pages ? "disabled" : ""}>下一页 ›</button>
+    </span>`;
+  $("#prevPg").onclick = () => { if (state.page > 1) { state.page--; renderCurrentView(); window.scrollTo({ top: 0, behavior: "smooth" }); } };
+  $("#nextPg").onclick = () => { if (state.page < pages) { state.page++; renderCurrentView(); window.scrollTo({ top: 0, behavior: "smooth" }); } };
+}
+
+function renderCurrentView() {
+  if (state.view === "detail") { $("#detailView").classList.remove("hidden"); $("#patientView").classList.add("hidden"); renderDetail(); }
+  else { $("#detailView").classList.add("hidden"); $("#patientView").classList.remove("hidden"); renderPatients(); }
+}
+
+/* ============ 刷新流程（本地计算，无任何网络请求） ============ */
+async function refresh() {
+  await loadSummary();
+  if (state.view === "detail") await fetchDetail(); else await fetchPatients();
+  renderCurrentView();
+}
+async function loadSummary() {
+  CURRENT.summary = summaryLocal(currentKw());
+  renderSummary(CURRENT.summary);
+  renderCharts(CURRENT.summary);
+}
+async function fetchDetail() {
+  const recs = filter_records(STORE.records, currentKw());
+  DATA.rows = recs.map(r => window.Pipeline.desensitize(r, state.plainName, state.plainPhone));
+}
+async function fetchPatients() {
+  DATA.patients = patientsAgg(STORE.records, currentKw());
+}
+
+/* ============ 上传 / 待分析 / 开始分析 ============ */
+function addToPending(files) {
+  let added = 0;
+  for (const f of files) {
+    // 去重：同名同大小视为同一文件
+    if (!pendingFiles.some(p => p.name === f.name && p.size === f.size)) {
+      pendingFiles.push(f); added++;
+    }
+  }
+  renderPending();
+  if (added) $("#pendingArea").classList.remove("hidden");
+}
+function renderPending() {
+  const list = $("#pendingList");
+  list.innerHTML = pendingFiles.map((f, i) =>
+    `<span class="file-chip">${esc(f.name)} (${fmtSize(f.size)})<span class="fx" data-idx="${i}" title="移除">×</span></span>`).join("");
+  list.querySelectorAll(".fx").forEach(x => x.onclick = () => {
+    pendingFiles.splice(+x.dataset.idx, 1);
+    renderPending();
+  });
+  $("#pendingCount").textContent = pendingFiles.length ? `共 ${pendingFiles.length} 个文件待分析` : "";
+  $("#startBtn").disabled = pendingFiles.length === 0;
+  if (pendingFiles.length === 0) $("#pendingArea").classList.add("hidden");
+}
+
+$("#pickBtn").onclick = () => fileInput.click();
+$("#addMoreBtn").onclick = () => fileInput.click();
+fileInput.onchange = e => { if (e.target.files.length) { addToPending(e.target.files); e.target.value = ""; } };
+["dragover", "dragenter"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("drag"); }));
+["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("drag"); }));
+drop.addEventListener("drop", e => { const f = e.dataTransfer.files; if (f.length) addToPending(f); });
+
+$("#clearPendingBtn").onclick = () => {
+  pendingFiles = [];
+  renderPending();
+  $("#pendingArea").classList.add("hidden");
+};
+
+$("#startBtn").onclick = async () => {
+  if (!pendingFiles.length) return;
+  showLoading("正在解析 Excel 并归一化计算…");
+  $("#startBtn").disabled = true;
+  try {
+    for (const f of pendingFiles) {
+      STORE.seq++;
+      const fid = "f" + STORE.seq;
+      const recs = await window.Pipeline.processFiles([f]);
+      if (recs.length) {
+        recs.forEach(r => { r._file_id = fid; r._file_label = f.name; });
+        STORE.records.push(...recs);
+        STORE.files.push({ id: fid, label: f.name, count: recs.length });
+      }
+    }
+    pendingFiles = [];
+    renderPending();
+    CURRENT.global = build_summary(STORE.records);
+    renderGlobal(CURRENT.global);
+    renderFiles(STORE.files);
+    $("#board").classList.remove("hidden");
+    state.page = 1;
+    await refresh();
+  } catch (err) {
+    alert("分析失败：" + (err && err.message ? err.message : err));
+  } finally {
+    hideLoading();
+    $("#startBtn").disabled = pendingFiles.length === 0;
+  }
+};
+
+$("#clearAllBtn").onclick = () => {
+  if (!confirm("确定清空全部已加载数据？")) return;
+  STORE.records = []; STORE.files = []; STORE.seq = 0;
+  CURRENT = { summary: null, global: null }; DATA = { rows: [], patients: [] };
+  $("#board").classList.add("hidden");
+  $("#fileChips").innerHTML = "";
+};
+
+/* ============ 筛选交互 ============ */
+$("#clearBtn").onclick = () => {
+  state.status.clear(); state.subtype = null;
+  state.drugs.clear(); state.pharmacies.clear();
+  state.start = state.end = null; state.q = ""; state.page = 1;
+  $("#searchInput").value = ""; $("#startDate").value = ""; $("#endDate").value = "";
+  refresh();
+};
+$("#startDate").onchange = e => { state.start = e.target.value || null; state.page = 1; refresh(); };
+$("#endDate").onchange = e => { state.end = e.target.value || null; state.page = 1; refresh(); };
+let searchTimer = null;
+$("#searchInput").addEventListener("input", e => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { state.q = e.target.value.trim(); state.page = 1; refresh(); }, 350);
+});
+$("#viewDetailBtn").onclick = () => { if (state.view !== "detail") { state.view = "detail"; state.page = 1; syncViewBtns(); refresh(); } };
+$("#viewPatientBtn").onclick = () => { if (state.view !== "patients") { state.view = "patients"; state.page = 1; syncViewBtns(); refresh(); } };
+function syncViewBtns() {
+  $("#viewDetailBtn").classList.toggle("active", state.view === "detail");
+  $("#viewPatientBtn").classList.toggle("active", state.view === "patients");
+}
+document.querySelectorAll(".dt-btn").forEach(b => b.onclick = () => {
+  const field = b.dataset.field, mode = b.dataset.mode;
+  const plain = (mode === "plain");
+  if (field === "name") state.plainName = plain; else state.plainPhone = plain;
+  b.parentElement.querySelectorAll(".dt-btn").forEach(x => x.classList.toggle("active", x === b));
+  state.page = 1;
+  refresh();
+});
+
+// 弹出层统一管理：多选面板 + 列显隐，点击外部关闭
+function closeAllPopovers() {
+  document.querySelectorAll(".ms-panel:not(.hidden)").forEach(p => p.classList.add("hidden"));
+  $("#colPanel").classList.add("hidden");
+}
+function togglePanel(panel) {
+  const open = !panel.classList.contains("hidden");
+  closeAllPopovers();
+  if (!open) panel.classList.remove("hidden");
+}
+$("#drugMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#drugMsPanel")); };
+$("#pharmMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#pharmMsPanel")); };
+document.addEventListener("click", e => {
+  if (e.target.closest(".ms") || e.target.closest("#colPanel") || e.target.closest("#colBtn")) return;
+  closeAllPopovers();
+});
+$("#colBtn").onclick = e => {
+  e.stopPropagation();
+  const p = $("#colPanel");
+  const open = !p.classList.contains("hidden");
+  closeAllPopovers();
+  if (open) return;
+  p.innerHTML = DETAIL.map(([key, label]) =>
+    `<label><input type="checkbox" data-col="${key}" ${state.hiddenCols.has(key) ? "" : "checked"}> ${label}</label>`).join("");
+  p.querySelectorAll("input").forEach(cb => cb.onchange = () => {
+    if (cb.checked) state.hiddenCols.delete(cb.dataset.col); else state.hiddenCols.add(cb.dataset.col);
+    renderDetail();
+  });
+  p.classList.remove("hidden");
+};
+
+/* ============ 导出（客户端 SheetJS） ============ */
+function doExport(desen) {
+  const recs = filter_records(STORE.records, currentKw());
+  if (!recs.length) { alert("当前筛选无数据可导出"); return; }
+  const rows = desen ? recs.map(r => window.Pipeline.desensitize(r)) : recs;
+  const aoa = [EXPORT_COLS.map(([, l]) => l)];
+  for (const r of rows) {
+    aoa.push(EXPORT_COLS.map(([k]) => {
+      let v = r[k];
+      if (k === "medication_status_raw") v = r.medication_status_raw || r.medication_status;
+      if (k === "irregularity_subtype_raw") v = r.irregularity_subtype_raw || r.irregularity_subtype || "";
+      return v == null ? "" : v;
+    }));
+  }
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "随访明细");
+  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  download(new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+    desen ? "随访明细_脱敏.xlsx" : "随访明细_未脱敏.xlsx");
+}
+$("#exportDesenBtn").onclick = () => doExport(true);
+$("#exportPlainBtn").onclick = () => {
+  $("#keyInput").value = ""; $("#keyErr").textContent = "";
+  $("#keyMask").classList.remove("hidden"); $("#keyInput").focus();
+};
+$("#keyCancel").onclick = () => $("#keyMask").classList.add("hidden");
+$("#keyConfirm").onclick = () => {
+  const key = $("#keyInput").value.trim();
+  if (!key) { $("#keyErr").textContent = "请输入任意内容以确认"; return; }
+  $("#keyMask").classList.add("hidden");
+  doExport(false);
+};
+$("#keyInput").addEventListener("keydown", e => { if (e.key === "Enter") $("#keyConfirm").click(); });
+$("#keyMask").addEventListener("click", e => { if (e.target === $("#keyMask")) $("#keyMask").classList.add("hidden"); });
+
+/* ============ 快照生成（自包含 HTML，可离线打开/分享） ============ */
+async function doSnapshot(desen) {
+  if (!STORE.records.length) { alert("暂无数据可生成快照"); return; }
+  showLoading(desen ? "正在生成脱敏快照…" : "正在生成不脱敏快照…");
+  try {
+    // 脱敏快照：写入文件的是「已脱敏」记录，原始 PII 不存在于文件中 → 无法还原 / 无法按全名检索。
+    const records = desen ? STORE.records.map(r => window.Pipeline.desensitize(r)).map(cleanRec)
+                           : STORE.records.map(cleanRec);
+    const snap = { desen, records, files: STORE.files, buildAt: new Date().toISOString() };
+    // 转义 < 避免记录文本中的 </script> 或 < 破坏内联数据脚本
+    const dataJson = JSON.stringify(snap).replace(/</g, "\\u003c");
+    const dataScript = `<script>window.__SNAP__=${dataJson};<\/script>`;
+    const bootstrap = `<script>(function(){if(window.__SNAP__&&window.AppCore){window.AppCore.loadSnapshot(window.__SNAP__);}})();<\/script>`;
+    // 直接序列化当前页面：逻辑脚本已内联在页面中，无需 fetch，
+    // 因此 https 与 file://（双击打开）都能生成可离线打开的自包含快照。
+    let html = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+    // 快照为只读视图，不需要 xlsx 库；剥离外链，避免 file:// 下加载失败
+    html = html.replace('<script src="vendor/xlsx.full.min.js"></script>', "");
+    html = html.replace("</body>", dataScript + bootstrap + "\n</body>");
+    download(new Blob([html], { type: "text/html" }),
+      desen ? "随访看板_脱敏快照.html" : "随访看板_不脱敏快照.html");
+  } catch (err) {
+    alert("快照生成失败：" + (err && err.message ? err.message : err));
+  } finally {
+    hideLoading();
+  }
+}
+$("#snapshotDesenBtn").onclick = () => doSnapshot(true);
+$("#snapshotPlainBtn").onclick = () => doSnapshot(false);
+
+/* ============ 快照打开模式（仅供生成的快照内部调用） ============ */
+function loadSnapshot(snap) {
+  SNAP_MODE = true;
+  STORE.records = (snap.records || []).map(r => Object.assign({}, r));
+  STORE.files = snap.files || [];
+  state.plainName = !snap.desen;
+  state.plainPhone = !snap.desen;
+  $("#drop").classList.add("hidden");
+  $("#pendingArea").classList.add("hidden");
+  $("#snapBanner").classList.remove("hidden");
+  $("#snapBanner").textContent = snap.desen
+    ? "📄 这是一份脱敏快照：姓名、电话已脱敏，文件中不含任何明文个人信息，可安全分享。"
+    : "⚠️ 这是一份「不脱敏」快照：包含明文姓名、电话等个人信息，仅可分享给可信接收方。";
+  // 快照为只读分享件：隐藏上传、文件管理、导出、再次快照等按钮
+  const fb = document.querySelector(".filebar"); if (fb) fb.classList.add("hidden");
+  ["#exportDesenBtn", "#exportPlainBtn", "#snapshotDesenBtn", "#snapshotPlainBtn"].forEach(s => $(s).classList.add("hidden"));
+  if (snap.desen) {
+    document.querySelectorAll('.dt-btn[data-mode="plain"]').forEach(b => b.disabled = true);
+  }
+  CURRENT.global = build_summary(STORE.records);
+  renderGlobal(CURRENT.global);
+  $("#board").classList.remove("hidden");
+  state.page = 1;
+  refresh();
+}
+
+// 调试/测试用：暴露核心计算与快照接口
+window.AppCore = { loadSnapshot, build_summary, filter_records, patientsAgg, summaryLocal, STORE };
+})();
+
+</script>
+</body>
+</html>
