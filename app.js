@@ -91,6 +91,7 @@ function build_summary(records) {
     by_status: countBy(records, r => r.medication_status),
     by_subtype: countBy(records.filter(r => r.irregularity_subtype), r => r.irregularity_subtype),
     by_source: countBy(records, r => r.source_type),
+    by_task_status: countBy(records, r => r.task_status || "未知"),
     by_drug: countBy(records, r => r.drug_product || "未知"),
     by_pharmacy: countBy(records, r => r.pharmacy || "未知"),
     by_month,
@@ -173,6 +174,7 @@ function summaryLocal(kw) {
   base.by_drug = build_summary(_facet(STORE.records, kw, "drug")).by_drug;
   base.by_pharmacy = build_summary(_facet(STORE.records, kw, "pharmacy")).by_pharmacy;
   base.by_month = build_summary(_facet(STORE.records, kw, "time")).by_month;
+  base.by_task_status = countBy(STORE.records, r => r.task_status || "未知");
   return base;
 }
 // 镜像 /api/patients：按 真实姓名+电话 分组；status/时间仅作「名单入选」门槛，不裁剪卡内记录
@@ -289,11 +291,15 @@ function renderGlobal(d) {
   if (!d) return;
   const stCards = TAXONOMY.map(s =>
     `<div class="g-card ${s}"><span class="g-num">${(d.by_status && d.by_status[s]) || 0}</span><span class="g-cap">${s}</span></div>`).join("");
-  const srcCards = Object.entries(d.by_source || {}).map(([k, v]) =>
-    `<div class="g-card src"><span class="g-num">${v}</span><span class="g-cap">${SRC_LABEL[k] || k}</span></div>`).join("");
+  const tc = d.by_task_status || {};
+  const done = tc["已完成"] || 0;
+  const ignored = Object.entries(tc).filter(([k]) => k !== "已完成").reduce((a, [, v]) => a + v, 0);
+  const taskCards =
+    `<div class="g-card task done"><span class="g-num">${done}</span><span class="g-cap">已完成</span></div>` +
+    `<div class="g-card task ignored"><span class="g-num">${ignored}</span><span class="g-cap">忽略或改期</span></div>`;
   $("#globalRow").innerHTML =
     `<div class="g-head"><span class="g-title">全量统计</span><span class="g-sub">基于全部上传数据 · 不随筛选变化</span></div>` +
-    `<div class="g-grid">${stCards}${srcCards}` +
+    `<div class="g-grid">${stCards}${taskCards}` +
     `<div class="g-card total"><span class="g-num">${d.total || 0}</span><span class="g-cap">合计</span></div>` +
     `</div>`;
 }

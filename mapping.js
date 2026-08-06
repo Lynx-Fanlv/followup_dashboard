@@ -2,7 +2,7 @@
 // 全部为纯函数 / 常量，无 DOM 依赖，可在浏览器与 Node 共用。
 
 const CANONICAL_FIELDS = [
-  "source_file", "source_type",
+  "source_file", "source_type", "task_status",
   "patient_name", "patient_id", "phone", "gender", "age",
   "followup_time", "task_type", "drug_product", "indication", "pharmacy",
   "is_key_patient", "medication_status", "irregularity_subtype",
@@ -35,10 +35,12 @@ const KEYWORD_RULES = [
   ["is_key_patient",["是否重点患者", "重点患者", "重点"]],
   ["adherence",     ["用药依从性", "依从性"]],
   ["summary",       ["随访小结", "小结", "随访记录"]],
-  ["task_type",     ["任务类型", "任务摘要", "服务摘要", "随访类型", "任务"]],
+  ["task_type",     ["任务类型", "任务摘要", "服务摘要", "随访类型"]],
+  ["task_status",    ["任务状态", "随访任务状态", "任务执行状态"]],
   // —— 状态推导中间列（按来源关键字识别，不依赖具体列名）——
   ["_status_period",    ["用药周期状态", "周期状态"]],
   ["_nonstd_usage",     ["非标准用法用量的类型", "非标准用法", "非标准"]],
+  ["_usage_status",     ["是否计划按时用药", "计划按时用药", "当前用药情况"]],
   ["_purchased_on_time",["已按时购药", "按时购药"]],
   ["_follow_confirm",   ["医生医嘱的确认", "按照医嘱服用", "医嘱的确认"]],
   ["_is_dropout",       ["是否判定患者属于易脱落", "易脱落"]],
@@ -55,6 +57,8 @@ const KEYWORD_RULES_MULTI = [
     "未按计划持续用药原因", "脱落/流失原因", "未购药的原因",
     "未在门店购药的原因", "未遵医嘱", "未按计划",
     "根本原因", "根因", "遵医嘱减量",
+    "遵医嘱推迟用药/停药的原因", "自行推迟用药/停药的原因",
+    "停药的原因", "推迟用药的原因", "详细医嘱", "更改方案/更换药房",
   ]],
 ];
 
@@ -88,31 +92,50 @@ function deriveStatus(sourceType, row, colmap) {
     if (v === "按计划持续用药") return "规范用药";
     if (v === "延迟用药" || v === "推迟购药" || v === "未按计划持续用药-不依从") return "不规范用药";
     if (v === "停药----脱落" || v === "随访失败") return "脱落停药";
+    // 兜底：_status_period 缺失时按根因文本判别
+    const reason = g("stop_reduce_reason") || "";
+    if (/停药|流失|拒接|未拨通|拒绝随访|自主停药|脱落|换方案|转渠道/.test(reason)) return "脱落停药";
+    if (/减量|延迟|推迟|不依从|不规律|减药/.test(reason)) return "不规范用药";
     const adh = g("adherence") || "";
     if (adh.includes("良好") || adh.includes("遵医嘱")) return "规范用药";
     return "其他";
   }
   if (sourceType === "routine") {
+    // 优先用「是否计划按时用药?」等状态列（真实主力表列名）
+    const usage = g("_usage_status");
+    if (usage) {
+      if (/停/.test(usage) && /(药|换)/.test(usage)) return "脱落停药";
+      if (/推迟|延迟|延后|提前/.test(usage)) return "不规范用药";
+      if (/减量|减药/.test(usage)) return "不规范用药";
+      if (/按时|按医嘱正常|正常用药/.test(usage)) return "规范用药";
+      return "其他";
+    }
+    // 回退：分级示例的「非标准用法用量的类型」
+    const nonstd = g("_nonstd_usage");
+    if (nonstd) {
+      if (/停/.test(nonstd) && /(药|换)/.test(nonstd)) return "脱落停药";
+      if (/减量|减药|推迟|延迟/.test(nonstd)) return "不规范用药";
+      return "不规范用药";
+    }
+    // 根因含停药/转药也判脱落（「易脱落」标记仅作风险提示，不参与状态判定）
     const selfStop = g("stop_reduce_reason");
-    if (selfStop && selfStop.includes("停药")) return "脱落停药";
-    const isDropout = g("_is_dropout") === "是";
-    const nonstd = has("_nonstd_usage");
-    const reduceStop = has("stop_reduce_reason");
+    if (selfStop && /停/.test(selfStop) && /(药|换)/.test(selfStop)) return "脱落停药";
     const follow = g("_follow_confirm");
-    if (isDropout || reduceStop || nonstd) return "不规范用药";
     if (follow && follow !== "医生确认，按医嘱执行") return "不规范用药";
     const summ = g("summary") || "";
     if (summ.includes("足量") || summ.includes("按医嘱执行") ||
-       (summ.includes("用药规范") && !summ.includes("减量"))) return "规范用药";
+       (summ.includes("用药规范") && !summ.includes("减量") && !summ.includes("停"))) return "规范用药";
     // 兜底：已排除脱落/不规范且随访已完成（有小结）→ 规范；无小结才落「其他」
     if (summ) return "规范用药";
     return "其他";
   }
   if (sourceType === "overdue_purchase") {
     const onTime = g("_purchased_on_time");
-    if (onTime === "否") return "不规范用药";
     if (onTime === "是") return "规范用药";
-    if (has("stop_reduce_reason") || has("_reduce_reason")) return "不规范用药";
+    // 未按时购药：根因含停药/转药/换方案 → 脱落；其余（延迟未购等）→ 不规范
+    const reason = g("stop_reduce_reason") || g("_reduce_reason") || "";
+    if (/停\s*药|停药|转药|转渠道|换方案|换用|改用|改方案|使用其他|其他药|流失|脱落/.test(reason)) return "脱落停药";
+    if (onTime === "否" || reason) return "不规范用药";
     return "其他";
   }
   return "其他";
@@ -123,6 +146,8 @@ function deriveIrregularitySubtype(sourceType, row, colmap) {
   const has = f => Boolean(g(f));
 
   if (sourceType === "routine") {
+    const usage = g("_usage_status");
+    if (usage && /推迟|延迟|延后|提前/.test(usage)) return "延迟/未按时用药";
     const t = g("_nonstd_usage");
     if (t && t.includes("自行减量")) return "自行减量";
     if (t && t.includes("医嘱减量")) return "医嘱减量";
