@@ -134,7 +134,10 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
       const tv = cellStr(row[c]);
       if (tv && !seen.has(tv)) { seen.add(tv); rparts.push(tv); }
     }
-    rec.stop_reduce_reason = rparts.length ? rparts.join("\n") : null;
+    // 剔除「无/不详/未知」等占位值；若全被剔除则回退保留原值，避免丢失原文
+    const rMeaningful = rparts.filter(p => !M.isPlaceholder(p));
+    const rFinal = rMeaningful.length ? rMeaningful : rparts;
+    rec.stop_reduce_reason = rFinal.length ? rFinal.join("\n") : null;
     // 用药状态 + 不规范下钻
     const status = M.deriveStatus(sourceType, row, colmap);
     rec.medication_status = status;

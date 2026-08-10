@@ -83,6 +83,29 @@ function _gtext(row, colmap, field) {
   return vals.join("\n") || "";
 }
 
+// 无信息量的占位值：合并多列自由文本时剔除（如「详细医嘱=无」「=不详」）
+const RE_PLACEHOLDER = /^(无|无。|没有|暂无|不详|未知|不清楚|不知道|无特殊|无异常|n\/?a|null|-+|\/|\.|。)$/i;
+function isPlaceholder(v) {
+  return !v || RE_PLACEHOLDER.test(String(v).trim());
+}
+
+// —— 「停药/换药」判定 ——
+// 坑点：枚举列的选项文案常写成「停用<商品名>」，而商品名未必含"药"字
+// （如替雷利珠单抗的商品名"百泽安" → "停用百泽安"），所以枚举列不能要求同时命中"停"和"药/换"。
+const RE_NEG_STOP = /不停|未停|没停|无停|勿停|暂不停|不需停|不用停|继续用药/;
+// 枚举型状态列（是否计划按时用药 / 非标准用法用量的类型…）：出现"停"即算停药
+function isStopOption(v) {
+  if (!v) return false;
+  if (RE_NEG_STOP.test(v)) return false;
+  return /停/.test(v) || /换药|转药|换方案|改方案/.test(v);
+}
+// 自由文本根因列：收紧匹配，避免"推迟用药"等被误判
+function isStopText(v) {
+  if (!v) return false;
+  if (RE_NEG_STOP.test(v)) return false;
+  return /停用|停药|停[／/]换|换药|转药|换方案|改方案|转渠道/.test(v);
+}
+
 function deriveStatus(sourceType, row, colmap) {
   const g = f => _gtext(row, colmap, f);
   const has = f => Boolean(g(f));
@@ -94,7 +117,7 @@ function deriveStatus(sourceType, row, colmap) {
     if (v === "停药----脱落" || v === "随访失败") return "脱落停药";
     // 兜底：_status_period 缺失时按根因文本判别
     const reason = g("stop_reduce_reason") || "";
-    if (/停药|流失|拒接|未拨通|拒绝随访|自主停药|脱落|换方案|转渠道/.test(reason)) return "脱落停药";
+    if (isStopText(reason) || /流失|拒接|未拨通|拒绝随访|脱落/.test(reason)) return "脱落停药";
     if (/减量|延迟|推迟|不依从|不规律|减药/.test(reason)) return "不规范用药";
     const adh = g("adherence") || "";
     if (adh.includes("良好") || adh.includes("遵医嘱")) return "规范用药";
@@ -104,7 +127,9 @@ function deriveStatus(sourceType, row, colmap) {
     // 优先用「是否计划按时用药?」等状态列（真实主力表列名）
     const usage = g("_usage_status");
     if (usage) {
-      if (/停/.test(usage) && /(药|换)/.test(usage)) return "脱落停药";
+      // 注意：选项文案常为「停用<商品名>」（如"停用百泽安"），商品名里未必含"药"字，
+      // 故不可要求同时命中"药/换"，只要出现"停"（且非否定表述）即视为停药。
+      if (isStopOption(usage)) return "脱落停药";
       if (/推迟|延迟|延后|提前/.test(usage)) return "不规范用药";
       if (/减量|减药/.test(usage)) return "不规范用药";
       if (/按时|按医嘱正常|正常用药/.test(usage)) return "规范用药";
@@ -113,13 +138,13 @@ function deriveStatus(sourceType, row, colmap) {
     // 回退：分级示例的「非标准用法用量的类型」
     const nonstd = g("_nonstd_usage");
     if (nonstd) {
-      if (/停/.test(nonstd) && /(药|换)/.test(nonstd)) return "脱落停药";
+      if (isStopOption(nonstd)) return "脱落停药";
       if (/减量|减药|推迟|延迟/.test(nonstd)) return "不规范用药";
       return "不规范用药";
     }
     // 根因含停药/转药也判脱落（「易脱落」标记仅作风险提示，不参与状态判定）
     const selfStop = g("stop_reduce_reason");
-    if (selfStop && /停/.test(selfStop) && /(药|换)/.test(selfStop)) return "脱落停药";
+    if (isStopText(selfStop)) return "脱落停药";
     const follow = g("_follow_confirm");
     if (follow && follow !== "医生确认，按医嘱执行") return "不规范用药";
     const summ = g("summary") || "";
@@ -134,7 +159,7 @@ function deriveStatus(sourceType, row, colmap) {
     if (onTime === "是") return "规范用药";
     // 未按时购药：根因含停药/转药/换方案 → 脱落；其余（延迟未购等）→ 不规范
     const reason = g("stop_reduce_reason") || g("_reduce_reason") || "";
-    if (/停\s*药|停药|转药|转渠道|换方案|换用|改用|改方案|使用其他|其他药|流失|脱落/.test(reason)) return "脱落停药";
+    if (isStopText(reason) || /换用|改用|使用其他|其他药|流失|脱落/.test(reason)) return "脱落停药";
     if (onTime === "否" || reason) return "不规范用药";
     return "其他";
   }
@@ -148,6 +173,7 @@ function deriveIrregularitySubtype(sourceType, row, colmap) {
   if (sourceType === "routine") {
     const usage = g("_usage_status");
     if (usage && /推迟|延迟|延后|提前/.test(usage)) return "延迟/未按时用药";
+    if (usage && /减量|减药/.test(usage)) return usage.includes("自行") ? "自行减量" : "医嘱减量";
     const t = g("_nonstd_usage");
     if (t && t.includes("自行减量")) return "自行减量";
     if (t && t.includes("医嘱减量")) return "医嘱减量";
@@ -192,6 +218,9 @@ function _rawStatusText(sourceType, row, colmap) {
   const g = f => _gtext(row, colmap, f);
   if (sourceType === "enrollment") return g("_status_period") || null;
   if (sourceType === "routine") {
+    // 优先回显专用状态列原文（如"停用百泽安"），这是判定的直接依据
+    const u = g("_usage_status");
+    if (u) return u;
     const t = g("_nonstd_usage");
     if (t) return t;
     if (g("_is_dropout") === "是") return "判定为易脱落";
@@ -223,5 +252,6 @@ function _rawSubtypeText(sourceType, row, colmap) {
 if (typeof window !== "undefined") {
   window.Mapping = { CANONICAL_FIELDS, STATUS_TAXONOMY, SUBTYPE_TAXONOMY, SIGNATURES,
     KEYWORD_RULES, KEYWORD_RULES_MULTI, normHeader, _cell, _gtext,
+    isPlaceholder, isStopOption, isStopText,
     deriveStatus, deriveIrregularitySubtype, _rawStatusText, _rawSubtypeText };
 }
