@@ -159,11 +159,9 @@ function deriveStatus(sourceType, row, colmap) {
     if (isStopText(selfStop)) return "脱落停药";
     const follow = g("_follow_confirm");
     if (follow && follow !== "医生确认，按医嘱执行") return "不规范用药";
-    const summ = g("summary") || "";
-    if (summ.includes("足量") || summ.includes("按医嘱执行") ||
-       (summ.includes("用药规范") && !summ.includes("减量") && !summ.includes("停"))) return "规范用药";
-    // 兜底：已排除脱落/不规范且随访已完成（有小结）→ 规范；无小结才落「其他」
-    if (summ) return "规范用药";
+    // 不再从「随访小结」自由文本中提取关键字判定用药状态。
+    // 原始文件已提供完整的结构化专用列（是否计划按时用药 / 停药原因 / 详细医嘱 / 自行原因等），
+    // 状态判定应完全基于这些结构化字段。若以上所有结构化字段均无有效信息，返回「其他」。
     return "其他";
   }
   if (sourceType === "overdue_purchase") {
