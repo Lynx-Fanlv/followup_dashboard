@@ -125,7 +125,7 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
     if (colmap.summary) rcols = rcols.concat([colmap.summary]);
     rcols = rcols.filter(c => cols.includes(c));
     const parts = [];
-    for (const c of rcols) { const tv = cellStr(row[c]); if (tv) parts.push(tv); }
+    for (const c of rcols) { const tv = cellStr(row[c]); if (tv && !M.isPlaceholder(tv)) parts.push(tv); }
     rec.remarks = parts.length ? parts.join("\n") : null;
     // 停药/减量根本原因
     const reasonCols = asList(colmap.stop_reduce_reason).filter(c => cols.includes(c));

@@ -52,6 +52,8 @@ const KEYWORD_RULES = [
 const KEYWORD_RULES_MULTI = [
   ["remarks", [
     "备注", "患者反馈", "用户反馈", "药师备注", "反馈",
+    // 自由文本原文（仅用于展示，不参与状态判定）
+    "主诉", "用药体验", "记录医嘱其他情况", "医嘱其他情况",
   ]],
   ["stop_reduce_reason", [
     "未按计划持续用药原因", "脱落/流失原因", "未购药的原因",
@@ -133,6 +135,16 @@ function deriveStatus(sourceType, row, colmap) {
       if (/推迟|延迟|延后|提前/.test(usage)) return "不规范用药";
       if (/减量|减药/.test(usage)) return "不规范用药";
       if (/按时|按医嘱正常|正常用药/.test(usage)) return "规范用药";
+      // 取值无法识别（如「其他:自由文本」）：不解析自由文本，改用行内结构化字段判定
+      const dr = g("_dropout_reason") || "";
+      if (/转渠道|转院|停药|换药|停用/.test(dr)) return "脱落停药";
+      if (/延迟|推迟|未按时/.test(dr)) return "不规范用药";
+      if (/减量|减药/.test(dr)) return "不规范用药";
+      const nonstd0 = g("_nonstd_usage");
+      if (nonstd0) return isStopOption(nonstd0) ? "脱落停药" : "不规范用药";
+      const r0 = g("stop_reduce_reason");
+      if (isStopText(r0)) return "脱落停药";
+      if (r0) return "不规范用药";
       return "其他";
     }
     // 回退：分级示例的「非标准用法用量的类型」
