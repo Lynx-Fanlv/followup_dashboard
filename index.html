@@ -828,12 +828,13 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
     // 备注：合并「自由文本」列 + 随访小结
     let rcols = asList(colmap.remarks);
     if (colmap.summary) rcols = rcols.concat([colmap.summary]);
-    rcols = rcols.filter(c => cols.includes(c));
+    // colmap 存的是列索引（索引化行存储）；row 是对象无 length，colmap 索引本身即合法，仅排除 null
+    rcols = rcols.filter(c => c != null);
     const parts = [];
     for (const c of rcols) { const tv = cellStr(row[c]); if (tv && !M.isPlaceholder(tv)) parts.push(tv); }
     rec.remarks = parts.length ? parts.join("\n") : null;
-    // 停药/减量根本原因
-    const reasonCols = asList(colmap.stop_reduce_reason).filter(c => cols.includes(c));
+    // 停药/减量根本原因：colmap 存的是列索引（索引化行存储）；row 是对象无 length，仅排除 null
+    const reasonCols = asList(colmap.stop_reduce_reason).filter(c => c != null);
     const rparts = []; const seen = new Set();
     for (const c of reasonCols) {
       const tv = cellStr(row[c]);
@@ -1400,7 +1401,9 @@ function patCardHtml(p, idx) {
     const sub = r["irregularity_subtype"] || "";
     return `<tr><td>${esc(r.followup_time || "")}</td><td>${esc(r.drug_product || "")}</td><td>${esc(r.pharmacy || "")}</td>`
       + `<td><span class="tag ${norm}">${esc(r.medication_status_raw || norm)}</span></td>`
-      + `<td style="white-space:pre-wrap">${esc(sub)}</td><td style="white-space:pre-wrap;max-width:280px">${esc(r.remarks || "")}</td></tr>`;
+      + `<td style="white-space:pre-wrap">${esc(sub)}</td>`
+      + `<td style="white-space:pre-wrap;max-width:240px">${esc(r.stop_reduce_reason || "")}</td>`
+      + `<td style="white-space:pre-wrap;max-width:240px">${esc(r.remarks || "")}</td></tr>`;
   }).join("");
   return `<div class="pat-card">
     <div class="pat-head">
@@ -1411,7 +1414,7 @@ function patCardHtml(p, idx) {
       <span class="pat-arrow">▸</span>
     </div>
     <div class="pat-body hidden">
-      <table class="mini-table"><thead><tr><th>随访时间</th><th>药品</th><th>药店</th><th>用药状态</th><th>不规范类型</th><th>备注</th></tr></thead>
+      <table class="mini-table"><thead><tr><th>随访时间</th><th>药品</th><th>药店</th><th>用药状态</th><th>不规范类型</th><th>停药/减量根本原因</th><th>备注</th></tr></thead>
       <tbody>${recRows}</tbody></table>
     </div>
   </div>`;

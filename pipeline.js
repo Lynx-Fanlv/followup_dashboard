@@ -168,12 +168,13 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
     // 备注：合并「自由文本」列 + 随访小结
     let rcols = asList(colmap.remarks);
     if (colmap.summary) rcols = rcols.concat([colmap.summary]);
-    rcols = rcols.filter(c => cols.includes(c));
+    // colmap 存的是列索引（索引化行存储）；row 是对象无 length，colmap 索引本身即合法，仅排除 null
+    rcols = rcols.filter(c => c != null);
     const parts = [];
     for (const c of rcols) { const tv = cellStr(row[c]); if (tv && !M.isPlaceholder(tv)) parts.push(tv); }
     rec.remarks = parts.length ? parts.join("\n") : null;
-    // 停药/减量根本原因
-    const reasonCols = asList(colmap.stop_reduce_reason).filter(c => cols.includes(c));
+    // 停药/减量根本原因：colmap 存的是列索引（索引化行存储）；row 是对象无 length，仅排除 null
+    const reasonCols = asList(colmap.stop_reduce_reason).filter(c => c != null);
     const rparts = []; const seen = new Set();
     for (const c of reasonCols) {
       const tv = cellStr(row[c]);

@@ -482,7 +482,9 @@ function patCardHtml(p, idx) {
     const sub = r["irregularity_subtype"] || "";
     return `<tr><td>${esc(r.followup_time || "")}</td><td>${esc(r.drug_product || "")}</td><td>${esc(r.pharmacy || "")}</td>`
       + `<td><span class="tag ${norm}">${esc(r.medication_status_raw || norm)}</span></td>`
-      + `<td style="white-space:pre-wrap">${esc(sub)}</td><td style="white-space:pre-wrap;max-width:280px">${esc(r.remarks || "")}</td></tr>`;
+      + `<td style="white-space:pre-wrap">${esc(sub)}</td>`
+      + `<td style="white-space:pre-wrap;max-width:240px">${esc(r.stop_reduce_reason || "")}</td>`
+      + `<td style="white-space:pre-wrap;max-width:240px">${esc(r.remarks || "")}</td></tr>`;
   }).join("");
   return `<div class="pat-card">
     <div class="pat-head">
@@ -493,7 +495,7 @@ function patCardHtml(p, idx) {
       <span class="pat-arrow">▸</span>
     </div>
     <div class="pat-body hidden">
-      <table class="mini-table"><thead><tr><th>随访时间</th><th>药品</th><th>药店</th><th>用药状态</th><th>不规范类型</th><th>备注</th></tr></thead>
+      <table class="mini-table"><thead><tr><th>随访时间</th><th>药品</th><th>药店</th><th>用药状态</th><th>不规范类型</th><th>停药/减量根本原因</th><th>备注</th></tr></thead>
       <tbody>${recRows}</tbody></table>
     </div>
   </div>`;
