@@ -28,31 +28,49 @@ function fmtDateTime(d) {
 }
 
 // 单值字段关键字启发式映射；followup_time 需区分「执行时间」与「计划执行时间」
+// 返回值统一为「列索引」（或索引数组），下游按索引读取，避免多模板合并表中重名列互相覆盖。
 function mapColumns(rawCols) {
   const assigned = {};
   const used = new Set();
   for (const [field, kws] of M.KEYWORD_RULES) {
+    const isCollective = field.charAt(0) === "_";
     let cand;
     if (field === "followup_time") {
-      const clean = rawCols.filter(rc => !used.has(rc) &&
-        normHeader(rc).includes("执行时间") && !normHeader(rc).includes("计划"));
-      cand = (clean.length ? clean : rawCols)
-        .filter(rc => !used.has(rc))
-        .map(rc => [rc, normHeader(rc)]);
+      const clean = [];
+      rawCols.forEach((rc, idx) => {
+        if (!used.has(idx) && normHeader(rc).includes("执行时间") && !normHeader(rc).includes("计划"))
+          clean.push([idx, normHeader(rc)]);
+      });
+      const base = clean.length ? clean : rawCols.map((rc, idx) => [idx, normHeader(rc)]);
+      cand = base.filter(([idx]) => !used.has(idx));
     } else {
-      cand = rawCols.filter(rc => !used.has(rc)).map(rc => [rc, normHeader(rc)]);
+      cand = rawCols.map((rc, idx) => [idx, normHeader(rc)]).filter(([idx]) => !used.has(idx));
     }
-    let best = null, bestHits = 0;
-    for (const [rc, nrc] of cand) {
-      let hits = 0;
-      for (const kw of kws) if (nrc.includes(kw)) hits++;
-      if (hits > 0 && hits > bestHits) { bestHits = hits; best = rc; }
+    if (isCollective) {
+      // 多模板合并表：同一逻辑字段可能有多个列副本（如「是否计划按时用药?」出现 3 次），
+      // 收集所有命中列，deriveStatus 会跨这些列读取（每行仅其所属模板那一列有值）。
+      const matched = cand.filter(([, nrc]) => kws.some(kw => nrc.includes(kw)));
+      if (matched.length) {
+        const idxs = matched.map(([idx]) => idx);
+        assigned[field] = idxs.length === 1 ? idxs[0] : idxs;
+        idxs.forEach(i => used.add(i));
+      }
+    } else {
+      let best = null, bestHits = 0;
+      for (const [idx, nrc] of cand) {
+        let hits = 0;
+        for (const kw of kws) if (nrc.includes(kw)) hits++;
+        if (hits > 0 && hits > bestHits) { bestHits = hits; best = idx; }
+      }
+      if (best !== null) { assigned[field] = best; used.add(best); }
     }
-    if (best !== null) { assigned[field] = best; used.add(best); }
   }
   for (const [field, kws] of M.KEYWORD_RULES_MULTI) {
-    const cols = rawCols.filter(rc => !used.has(rc) && kws.some(kw => normHeader(rc).includes(kw)));
-    if (cols.length) { assigned[field] = cols; cols.forEach(c => used.add(c)); }
+    const cols = [];
+    rawCols.forEach((rc, idx) => {
+      if (!used.has(idx) && kws.some(kw => normHeader(rc).includes(kw))) cols.push(idx);
+    });
+    if (cols.length) { assigned[field] = cols; cols.forEach(i => used.add(i)); }
   }
   return assigned;
 }
@@ -69,6 +87,24 @@ function detectSource(columns, colmap) {
     if (normCols.some(c => c.includes(nsig))) return stype;
   }
   return "unknown";
+}
+
+// 逐行判定来源：多模板合并表中，每行只属于其中一个模板（仅其模板的关键列有值）。
+// 因此按「哪个来源的关键列在本行有实际取值」来归类，比文件级判定更准。
+function detectSourceRow(row, colmap, fallback) {
+  const filled = (field) => {
+    const c = colmap[field];
+    if (c == null) return false;
+    const idxs = Array.isArray(c) ? c : [c];
+    return idxs.some(i => cellStr(row[i]) != null);
+  };
+  // 日常随访：用药状态/易脱落/医嘱确认 任一有值
+  if (filled("_usage_status") || filled("_is_dropout") || filled("_follow_confirm") || filled("_nonstd_usage")) return "routine";
+  // 过期购药
+  if (filled("_purchased_on_time")) return "overdue_purchase";
+  // 入组
+  if (colmap._status_period != null && cellStr(row[colmap._status_period]) != null) return "enrollment";
+  return fallback;
 }
 
 // 在原始数组（array-of-arrays，已转字符串）的前 maxScan 行中找最像表头的一行
@@ -99,26 +135,35 @@ function detectHeaderRow(aoaStr, maxScan = 15) {
   return bestRow;
 }
 
-// 把一行数组转成 列名->清洗后字符串 的对象
+// 把一行数组转成 列索引->清洗后字符串 的对象
+// 用索引做 key 而非列名：多模板合并表中重名列（如「患者主诉」「是否计划按时用药?」多次出现）
+// 若用列名做 key 会互相覆盖，导致只读到最后一列。
 function rowToObj(cols, r) {
   const o = {};
-  cols.forEach((c, i) => { o[c] = cellStr(r[i]); });
+  for (let i = 0; i < r.length; i++) o[i] = cellStr(r[i]);
   return o;
 }
 
 function normalizeRows(rows, cols, sourceFile, sheetName) {
   const colmap = mapColumns(cols);
-  const sourceType = detectSource(cols, colmap);
+  const fileSource = detectSource(cols, colmap);
   const records = [];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
+    const sourceType = detectSourceRow(row, colmap, fileSource) || "unknown";
     const rid = `${sourceFile}::${sourceType}::${sheetName || "sheet"}::${i}`;
     const rec = { source_file: sourceFile, source_type: sourceType, _row_id: rid };
     for (const field of M.CANONICAL_FIELDS) {
       if (["source_file", "source_type", "remarks", "medication_status",
            "irregularity_subtype", "stop_reduce_reason"].includes(field)) continue;
       const col = colmap[field];
-      rec[field] = col ? cellStr(row[col]) : null;
+      if (col == null) { rec[field] = null; continue; }
+      if (Array.isArray(col)) {
+        const vs = col.map(c => cellStr(row[c])).filter(Boolean);
+        rec[field] = vs.length ? vs.join("\n") : null;
+      } else {
+        rec[field] = cellStr(row[col]);
+      }
     }
     // 备注：合并「自由文本」列 + 随访小结
     let rcols = asList(colmap.remarks);

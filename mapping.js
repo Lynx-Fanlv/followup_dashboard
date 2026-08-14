@@ -40,10 +40,11 @@ const KEYWORD_RULES = [
   // —— 状态推导中间列（按来源关键字识别，不依赖具体列名）——
   ["_status_period",    ["用药周期状态", "周期状态"]],
   ["_nonstd_usage",     ["非标准用法用量的类型", "非标准用法", "非标准"]],
-  ["_usage_status",     ["是否计划按时用药", "计划按时用药", "当前用药情况"]],
+  ["_dosage",           ["的用法用量", "当前用法用量"]],
+  ["_usage_status",     ["是否计划按时用药", "是否按时用药", "计划按时用药", "当前用药情况"]],
   ["_purchased_on_time",["已按时购药", "按时购药"]],
   ["_follow_confirm",   ["医生医嘱的确认", "按照医嘱服用", "医嘱的确认"]],
-  ["_is_dropout",       ["是否判定患者属于易脱落", "易脱落"]],
+  ["_is_dropout",       ["是否判定患者属于易脱落"]],
   ["_dropout_reason",   ["判断为易脱落的原因", "易脱落的原因"]],
   ["_reduce_reason",    ["减量的具体原因", "停药的具体原因"]],
 ];
@@ -79,9 +80,13 @@ function _cell(row, col) {
 
 function _gtext(row, colmap, field) {
   let cols = colmap[field];
-  if (!cols) return "";
-  if (typeof cols === "string") cols = [cols];
-  const vals = cols.map(c => _cell(row, c)).filter(Boolean);
+  if (cols == null) return "";
+  if (typeof cols === "number" || typeof cols === "string") cols = [cols];
+  const vals = [], seen = new Set();
+  for (const c of cols) {
+    const v = _cell(row, c);
+    if (v && !seen.has(v)) { seen.add(v); vals.push(v); }
+  }
   return vals.join("\n") || "";
 }
 
@@ -158,10 +163,19 @@ function deriveStatus(sourceType, row, colmap) {
     const selfStop = g("stop_reduce_reason");
     if (isStopText(selfStop)) return "脱落停药";
     const follow = g("_follow_confirm");
-    if (follow && follow !== "医生确认，按医嘱执行") return "不规范用药";
-    // 不再从「随访小结」自由文本中提取关键字判定用药状态。
-    // 原始文件已提供完整的结构化专用列（是否计划按时用药 / 停药原因 / 详细医嘱 / 自行原因等），
-    // 状态判定应完全基于这些结构化字段。若以上所有结构化字段均无有效信息，返回「其他」。
+    if (follow) {
+      // 医嘱确认列明确表达「按医嘱/已确认/规律/正常/足量」即视为规范；含否定或异常表述视为不规范
+      if (/确认|按医嘱|规律|正常|依从|足量|是/.test(follow)) return "规范用药";
+      return "不规范用药";
+    }
+    // 正向合规信号：存在「用法用量」记录（如"每天2次每次2粒(足量）"），
+    // 且无任何停药/非标准用法/易脱落标记 → 规范用药。
+    // 这类行在表单里属于"标准足量用药"，只是「非标准用法用量的类型」按计划留空，不应判为「其他」。
+    // （纯结构化字段判定，不读取随访小结自由文本）
+    const dosage = g("_dosage");
+    if (dosage && !isStopText(g("stop_reduce_reason")) && !g("_nonstd_usage") && g("_is_dropout") !== "是") return "规范用药";
+    // 状态判定完全基于原始文件的结构化专用列；若以上所有结构化字段均无有效信息，返回「其他」。
+    // （不读取「随访小结」自由文本作状态判定，以免与结构化结论冲突）
     return "其他";
   }
   if (sourceType === "overdue_purchase") {
