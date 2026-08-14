@@ -16,7 +16,7 @@ const EXPORT_COLS = [
   ["indication", "适应症"],
   ["pharmacy", "药店"],
   ["medication_status_raw", "用药状态"],
-  ["irregularity_subtype_raw", "不规范类型"],
+  ["irregularity_subtype", "不规范类型"],
   ["stop_reduce_reason", "停药/减量根本原因"],
   ["remarks", "备注"],
 ];
@@ -436,9 +436,8 @@ function rowHtml(rec, cols, idx) {
       return `<td><span class="tag ${norm}">${esc(txt)}</span></td>`;
     }
     if (key === "irregularity_subtype") {
-      const raw = rec["irregularity_subtype_raw"] || v || "";
-      if (!raw) return `<td></td>`;
-      return `<td><div class="cell-clip">${esc(raw)}</div></td>`;
+      if (!v) return `<td></td>`;
+      return `<td><div class="cell-clip">${esc(v)}</div></td>`;
     }
     if (key === "remarks" || key === "stop_reduce_reason") return `<td><div class="cell-clip">${esc(v)}</div></td>`;
     return `<td>${esc(v)}</td>`;
@@ -447,9 +446,9 @@ function rowHtml(rec, cols, idx) {
 function expandHtml(rec, colspan) {
   const sec = (lbl, val) => val ? `<div><span class="eb-lbl">${lbl}：</span>${esc(val)}</div>` : "";
   return `<tr class="expand-row"><td colspan="${colspan}"><div class="expand-box">`
-    + sec("备注", rec.remarks)
+    + sec("不规范类型", rec.irregularity_subtype)
     + sec("停药/减量根本原因", rec.stop_reduce_reason)
-    + sec("不规范类型(原文)", rec.irregularity_subtype_raw || rec.irregularity_subtype)
+    + sec("备注", rec.remarks)
     + sec("随访小结", rec.summary)
     + `</div></td></tr>`;
 }
@@ -480,7 +479,7 @@ function patCardHtml(p, idx) {
   });
   const recRows = recs.map(r => {
     const norm = r["medication_status"] || "";
-    const sub = r["irregularity_subtype_raw"] || r["irregularity_subtype"] || "";
+    const sub = r["irregularity_subtype"] || "";
     return `<tr><td>${esc(r.followup_time || "")}</td><td>${esc(r.drug_product || "")}</td><td>${esc(r.pharmacy || "")}</td>`
       + `<td><span class="tag ${norm}">${esc(r.medication_status_raw || norm)}</span></td>`
       + `<td style="white-space:pre-wrap">${esc(sub)}</td><td style="white-space:pre-wrap;max-width:280px">${esc(r.remarks || "")}</td></tr>`;
@@ -684,7 +683,6 @@ function doExport(desen) {
     aoa.push(EXPORT_COLS.map(([k]) => {
       let v = r[k];
       if (k === "medication_status_raw") v = r.medication_status_raw || r.medication_status;
-      if (k === "irregularity_subtype_raw") v = r.irregularity_subtype_raw || r.irregularity_subtype || "";
       return v == null ? "" : v;
     }));
   }

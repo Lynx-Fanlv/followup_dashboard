@@ -585,8 +585,16 @@ function deriveIrregularitySubtype(sourceType, row, colmap) {
     const dr = g("_dropout_reason");
     if (dr) {
       if (dr.includes("延迟") || dr.includes("未按时") || dr.includes("推迟")) return "延迟/未按时用药";
-      if (dr.includes("减量")) return "医嘱减量";
-      if (dr.includes("停药") || dr.includes("换药")) return "医嘱停药";
+      if (dr.includes("减量")) return dr.includes("自行") ? "自行减量" : "医嘱减量";
+      if (dr.includes("停药") || dr.includes("换药")) return dr.includes("自行") ? "自行停药" : "医嘱停药";
+      return "其他不规范";
+    }
+    // 兜底：从「停药/减量根本原因」（多列合并）提炼具体类型，使"不规范类型"标签更具体
+    const sr = g("stop_reduce_reason");
+    if (sr) {
+      if (sr.includes("延迟") || sr.includes("未按时") || sr.includes("推迟")) return "延迟/未按时用药";
+      if (sr.includes("减量")) return sr.includes("自行") ? "自行减量" : "医嘱减量";
+      if (sr.includes("停药") || sr.includes("换药")) return sr.includes("自行") ? "自行停药" : "医嘱停药";
       return "其他不规范";
     }
     return "其他不规范";
@@ -640,23 +648,12 @@ function _rawStatusText(sourceType, row, colmap) {
   return null;
 }
 
-function _rawSubtypeText(sourceType, row, colmap) {
-  const g = f => _gtext(row, colmap, f);
-  if (sourceType === "routine") {
-    const parts = [g("_nonstd_usage"), g("_dropout_reason")].filter(Boolean);
-    return parts.length ? Array.from(new Set(parts)).join("；") : null;
-  }
-  if (sourceType === "overdue_purchase") return g("_reduce_reason") || g("stop_reduce_reason") || null;
-  if (sourceType === "enrollment") return g("stop_reduce_reason") || null;
-  return null;
-}
-
 // 浏览器端：导出到全局，供 pipeline.js / app.js 使用（非模块化脚本共享词法作用域）
 if (typeof window !== "undefined") {
   window.Mapping = { CANONICAL_FIELDS, STATUS_TAXONOMY, SUBTYPE_TAXONOMY, SIGNATURES,
     KEYWORD_RULES, KEYWORD_RULES_MULTI, normHeader, _cell, _gtext,
     isPlaceholder, isStopOption, isStopText,
-    deriveStatus, deriveIrregularitySubtype, _rawStatusText, _rawSubtypeText };
+    deriveStatus, deriveIrregularitySubtype, _rawStatusText };
 }
 
 </script>
@@ -852,7 +849,6 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
     rec.medication_status_raw = M._rawStatusText(sourceType, row, colmap) || status;
     const sub = status === "不规范用药" ? M.deriveIrregularitySubtype(sourceType, row, colmap) : null;
     rec.irregularity_subtype = sub;
-    rec.irregularity_subtype_raw = sub ? M._rawSubtypeText(sourceType, row, colmap) : null;
     records.push(rec);
   }
   return records;
@@ -938,7 +934,7 @@ const EXPORT_COLS = [
   ["indication", "适应症"],
   ["pharmacy", "药店"],
   ["medication_status_raw", "用药状态"],
-  ["irregularity_subtype_raw", "不规范类型"],
+  ["irregularity_subtype", "不规范类型"],
   ["stop_reduce_reason", "停药/减量根本原因"],
   ["remarks", "备注"],
 ];
@@ -1358,9 +1354,8 @@ function rowHtml(rec, cols, idx) {
       return `<td><span class="tag ${norm}">${esc(txt)}</span></td>`;
     }
     if (key === "irregularity_subtype") {
-      const raw = rec["irregularity_subtype_raw"] || v || "";
-      if (!raw) return `<td></td>`;
-      return `<td><div class="cell-clip">${esc(raw)}</div></td>`;
+      if (!v) return `<td></td>`;
+      return `<td><div class="cell-clip">${esc(v)}</div></td>`;
     }
     if (key === "remarks" || key === "stop_reduce_reason") return `<td><div class="cell-clip">${esc(v)}</div></td>`;
     return `<td>${esc(v)}</td>`;
@@ -1369,9 +1364,9 @@ function rowHtml(rec, cols, idx) {
 function expandHtml(rec, colspan) {
   const sec = (lbl, val) => val ? `<div><span class="eb-lbl">${lbl}：</span>${esc(val)}</div>` : "";
   return `<tr class="expand-row"><td colspan="${colspan}"><div class="expand-box">`
-    + sec("备注", rec.remarks)
+    + sec("不规范类型", rec.irregularity_subtype)
     + sec("停药/减量根本原因", rec.stop_reduce_reason)
-    + sec("不规范类型(原文)", rec.irregularity_subtype_raw || rec.irregularity_subtype)
+    + sec("备注", rec.remarks)
     + sec("随访小结", rec.summary)
     + `</div></td></tr>`;
 }
@@ -1402,7 +1397,7 @@ function patCardHtml(p, idx) {
   });
   const recRows = recs.map(r => {
     const norm = r["medication_status"] || "";
-    const sub = r["irregularity_subtype_raw"] || r["irregularity_subtype"] || "";
+    const sub = r["irregularity_subtype"] || "";
     return `<tr><td>${esc(r.followup_time || "")}</td><td>${esc(r.drug_product || "")}</td><td>${esc(r.pharmacy || "")}</td>`
       + `<td><span class="tag ${norm}">${esc(r.medication_status_raw || norm)}</span></td>`
       + `<td style="white-space:pre-wrap">${esc(sub)}</td><td style="white-space:pre-wrap;max-width:280px">${esc(r.remarks || "")}</td></tr>`;
@@ -1606,7 +1601,6 @@ function doExport(desen) {
     aoa.push(EXPORT_COLS.map(([k]) => {
       let v = r[k];
       if (k === "medication_status_raw") v = r.medication_status_raw || r.medication_status;
-      if (k === "irregularity_subtype_raw") v = r.irregularity_subtype_raw || r.irregularity_subtype || "";
       return v == null ? "" : v;
     }));
   }

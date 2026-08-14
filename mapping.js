@@ -209,8 +209,16 @@ function deriveIrregularitySubtype(sourceType, row, colmap) {
     const dr = g("_dropout_reason");
     if (dr) {
       if (dr.includes("延迟") || dr.includes("未按时") || dr.includes("推迟")) return "延迟/未按时用药";
-      if (dr.includes("减量")) return "医嘱减量";
-      if (dr.includes("停药") || dr.includes("换药")) return "医嘱停药";
+      if (dr.includes("减量")) return dr.includes("自行") ? "自行减量" : "医嘱减量";
+      if (dr.includes("停药") || dr.includes("换药")) return dr.includes("自行") ? "自行停药" : "医嘱停药";
+      return "其他不规范";
+    }
+    // 兜底：从「停药/减量根本原因」（多列合并）提炼具体类型，使"不规范类型"标签更具体
+    const sr = g("stop_reduce_reason");
+    if (sr) {
+      if (sr.includes("延迟") || sr.includes("未按时") || sr.includes("推迟")) return "延迟/未按时用药";
+      if (sr.includes("减量")) return sr.includes("自行") ? "自行减量" : "医嘱减量";
+      if (sr.includes("停药") || sr.includes("换药")) return sr.includes("自行") ? "自行停药" : "医嘱停药";
       return "其他不规范";
     }
     return "其他不规范";
@@ -264,21 +272,10 @@ function _rawStatusText(sourceType, row, colmap) {
   return null;
 }
 
-function _rawSubtypeText(sourceType, row, colmap) {
-  const g = f => _gtext(row, colmap, f);
-  if (sourceType === "routine") {
-    const parts = [g("_nonstd_usage"), g("_dropout_reason")].filter(Boolean);
-    return parts.length ? Array.from(new Set(parts)).join("；") : null;
-  }
-  if (sourceType === "overdue_purchase") return g("_reduce_reason") || g("stop_reduce_reason") || null;
-  if (sourceType === "enrollment") return g("stop_reduce_reason") || null;
-  return null;
-}
-
 // 浏览器端：导出到全局，供 pipeline.js / app.js 使用（非模块化脚本共享词法作用域）
 if (typeof window !== "undefined") {
   window.Mapping = { CANONICAL_FIELDS, STATUS_TAXONOMY, SUBTYPE_TAXONOMY, SIGNATURES,
     KEYWORD_RULES, KEYWORD_RULES_MULTI, normHeader, _cell, _gtext,
     isPlaceholder, isStopOption, isStopText,
-    deriveStatus, deriveIrregularitySubtype, _rawStatusText, _rawSubtypeText };
+    deriveStatus, deriveIrregularitySubtype, _rawStatusText };
 }

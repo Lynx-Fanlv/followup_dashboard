@@ -189,7 +189,6 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
     rec.medication_status_raw = M._rawStatusText(sourceType, row, colmap) || status;
     const sub = status === "不规范用药" ? M.deriveIrregularitySubtype(sourceType, row, colmap) : null;
     rec.irregularity_subtype = sub;
-    rec.irregularity_subtype_raw = sub ? M._rawSubtypeText(sourceType, row, colmap) : null;
     records.push(rec);
   }
   return records;
