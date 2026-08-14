@@ -526,6 +526,9 @@ function deriveStatus(sourceType, row, colmap) {
       const r0 = g("stop_reduce_reason");
       if (isStopText(r0)) return "脱落停药";
       if (r0) return "不规范用药";
+      // 「用法用量」列明确足量/规范 → 规范用药（结构化字段，优先于「其他」兜底，不读随访小结）
+      const d1 = g("_dosage");
+      if (d1 && /足量|全量|完整|正常用药|按医嘱正常/.test(d1)) return "规范用药";
       return "其他";
     }
     // 回退：分级示例的「非标准用法用量的类型」
@@ -544,12 +547,12 @@ function deriveStatus(sourceType, row, colmap) {
       if (/确认|按医嘱|规律|正常|依从|足量|是/.test(follow)) return "规范用药";
       return "不规范用药";
     }
-    // 正向合规信号：存在「用法用量」记录（如"每天2次每次2粒(足量）"），
-    // 且无任何停药/非标准用法/易脱落标记 → 规范用药。
-    // 这类行在表单里属于"标准足量用药"，只是「非标准用法用量的类型」按计划留空，不应判为「其他」。
-    // （纯结构化字段判定，不读取随访小结自由文本）
+    // 正向合规信号：「用法用量」列记录足量/规范（如"每天2次每次2粒(足量）"），
+    // 即视为规范用药。该列是结构化字段（不读随访小结），且「易脱落」标记仅作风险提示，
+    // 不因其阻断合规判定（用法用量列直接反映当前是否足量用药）。
     const dosage = g("_dosage");
-    if (dosage && !isStopText(g("stop_reduce_reason")) && !g("_nonstd_usage") && g("_is_dropout") !== "是") return "规范用药";
+    if (dosage && /足量|全量|完整|正常用药|按医嘱正常/.test(dosage)
+        && !isStopText(g("stop_reduce_reason")) && !g("_nonstd_usage")) return "规范用药";
     // 状态判定完全基于原始文件的结构化专用列；若以上所有结构化字段均无有效信息，返回「其他」。
     // （不读取「随访小结」自由文本作状态判定，以免与结构化结论冲突）
     return "其他";
