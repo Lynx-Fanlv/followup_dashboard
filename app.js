@@ -318,6 +318,49 @@ function renderCharts(d) {
   $("#donutChart").innerHTML = donutChart(d.by_status || {});
   $("#drugChart").innerHTML = barChart(d.by_drug || {});
   $("#trendChart").innerHTML = lineChart(d.by_month || {});
+  bindTrendHover();
+}
+
+// 趋势图悬停：鼠标移入整张图时，自动吸附到最近的月份点并显示数量
+function bindTrendHover() {
+  const svg = document.querySelector("#trendChart svg");
+  if (!svg) return;
+  const raw = svg.getAttribute("data-series");
+  if (!raw) return;
+  let series;
+  try { series = JSON.parse(raw); } catch (e) { return; }
+  if (!series.length) return;
+  const W = 360, H = 140, P = 28;
+  const overlay = svg.querySelector(".trend-overlay");
+  const hover = svg.querySelector(".trend-hover");
+  if (!overlay || !hover) return;
+  const line = hover.querySelector(".th-line");
+  const dot = hover.querySelector(".th-dot");
+  const bg = hover.querySelector(".th-bg");
+  const txt = hover.querySelector(".th-txt");
+
+  overlay.addEventListener("mousemove", e => {
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width) return;
+    const scaleX = W / rect.width;          // 客户端 px -> viewBox 坐标
+    const mx = (e.clientX - rect.left) * scaleX;
+    let best = 0, bd = Infinity;
+    series.forEach((p, i) => { const dd = Math.abs(p.x - mx); if (dd < bd) { bd = dd; best = i; } });
+    const p = series[best];
+    hover.style.display = "";
+    line.setAttribute("x1", p.x);
+    line.setAttribute("x2", p.x);
+    dot.setAttribute("cx", p.x);
+    dot.setAttribute("cy", p.y);
+    const ty = Math.max(8, Math.min(p.y - 11, H - P));
+    const bx = Math.max(32, Math.min(p.x, W - 32));
+    bg.setAttribute("x", bx - 32);
+    bg.setAttribute("y", ty - 14);
+    txt.setAttribute("x", bx);
+    txt.setAttribute("y", ty - 2);
+    txt.textContent = `${p.k}：${p.v} 条`;
+  });
+  overlay.addEventListener("mouseleave", () => { hover.style.display = "none"; });
 }
 function donutChart(data) {
   const entries = TAXONOMY.map(s => [s, data[s] || 0]).filter(([, v]) => v > 0);
@@ -352,16 +395,31 @@ function barChart(data) {
 function lineChart(data) {
   const entries = Object.entries(data);
   if (!entries.length) return '<div class="chart-empty">暂无数据</div>';
-  const W = 320, H = 120, P = 26;
+  const W = 360, H = 140, P = 28, PT = 12;
   const max = Math.max(...entries.map(e => e[1]), 1);
   const n = entries.length;
   const X = i => n === 1 ? W / 2 : P + i * (W - 2 * P) / (n - 1);
-  const Y = v => H - P - (v / max) * (H - 2 * P);
+  const Y = v => H - P - (v / max) * (H - 2 * P - PT);
   const pts = entries.map(([, v], i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
-  const dots = entries.map(([k, v], i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3" fill="#3b5bdb"><title>${k}: ${v}条</title></circle>`).join("");
+  const dots = entries.map(([k, v], i) =>
+    `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3" fill="#3b5bdb"></circle>`).join("");
   const step = Math.ceil(n / 8);
-  const labels = entries.map(([k], i) => (i % step === 0 || i === n - 1) ? `<text x="${X(i).toFixed(1)}" y="${H - 8}" font-size="9" text-anchor="middle" fill="#868e96">${k.slice(2)}</text>` : "").join("");
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="120"><polyline points="${pts}" fill="none" stroke="#3b5bdb" stroke-width="2"/>${dots}${labels}</svg>`;
+  const labels = entries.map(([k], i) =>
+    (i % step === 0 || i === n - 1) ? `<text x="${X(i).toFixed(1)}" y="${H - 8}" font-size="9" text-anchor="middle" fill="#868e96">${esc(k.slice(2))}</text>` : "").join("");
+  // 基线
+  const baseline = `<line x1="${P}" y1="${H - P}" x2="${W - P}" y2="${H - P}" stroke="#e9ecef" stroke-width="1"/>`;
+  // 预计算每个点的 viewBox 坐标，供悬停吸附使用
+  const series = entries.map(([k, v], i) => ({ x: +X(i).toFixed(1), y: +Y(v).toFixed(1), k, v }));
+  const hover = `<g class="trend-hover" style="display:none">
+      <line class="th-line" x1="0" y1="${PT}" x2="0" y2="${H - P}" stroke="#adb5bd" stroke-dasharray="3 2" stroke-width="1"/>
+      <circle class="th-dot" r="4.5" fill="#fff" stroke="#3b5bdb" stroke-width="2"/>
+      <rect class="th-bg" x="0" y="0" width="64" height="16" rx="3" fill="#212529" opacity="0.92"/>
+      <text class="th-txt" text-anchor="middle" font-size="10" fill="#fff"></text>
+    </g>`;
+  const overlay = `<rect class="trend-overlay" x="0" y="0" width="${W}" height="${H}" fill="transparent" style="cursor:crosshair"/>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="140" data-series='${JSON.stringify(series)}' style="overflow:visible">`
+    + baseline + `<polyline points="${pts}" fill="none" stroke="#3b5bdb" stroke-width="2"/>` + dots + labels
+    + hover + overlay + `</svg>`;
 }
 
 function renderSubtypeBar() {
@@ -673,6 +731,7 @@ function togglePanel(panel) {
 }
 $("#drugMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#drugMsPanel")); };
 $("#pharmMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#pharmMsPanel")); };
+$("#execMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#execMsPanel")); };
 document.addEventListener("click", e => {
   if (e.target.closest(".ms") || e.target.closest("#colPanel") || e.target.closest("#colBtn")) return;
   closeAllPopovers();
