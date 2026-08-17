@@ -15,6 +15,7 @@ const EXPORT_COLS = [
   ["drug_product", "药品"],
   ["indication", "适应症"],
   ["pharmacy", "药店"],
+  ["executor", "执行人"],
   ["medication_status_raw", "用药状态"],
   ["irregularity_subtype", "不规范类型"],
   ["stop_reduce_reason", "停药/减量根本原因"],
@@ -31,11 +32,11 @@ const SRC_LABEL = { routine: "日常随访", enrollment: "入组", overdue_purch
 const STATUS_COLOR = { "规范用药": "#0f9d6b", "不规范用药": "#e03131", "脱落停药": "#e8590c", "其他": "#868e96" };
 const DETAIL = [["patient_name", "患者"], ["phone", "电话"], ["gender", "性别"], ["age", "年龄"],
   ["followup_time", "随访时间"], ["drug_product", "药品"], ["indication", "适应症"],
-  ["pharmacy", "药店"], ["medication_status_raw", "用药状态"],
+  ["pharmacy", "药店"], ["executor", "执行人"], ["medication_status_raw", "用药状态"],
   ["irregularity_subtype", "不规范类型"],
   ["stop_reduce_reason", "停药/减量根本原因"], ["remarks", "备注"]];
 
-const state = { status: new Set(), subtype: null, drugs: new Set(), pharmacies: new Set(), start: null, end: null,
+const state = { status: new Set(), subtype: null, drugs: new Set(), pharmacies: new Set(), executors: new Set(), start: null, end: null,
   q: "", view: "detail", page: 1, pageSize: 50, hiddenCols: new Set(),
   plainName: false, plainPhone: false };
 let CURRENT = { summary: null, global: null };
@@ -94,6 +95,7 @@ function build_summary(records) {
     by_task_status: countBy(records, r => r.task_status || "未知"),
     by_drug: countBy(records, r => r.drug_product || "未知"),
     by_pharmacy: countBy(records, r => r.pharmacy || "未知"),
+    by_executor: countBy(records, r => r.executor || "未知"),
     by_month,
     taxonomy: STATUS_TAXONOMY,
     subtypes: SUBTYPE_TAXONOMY,
@@ -102,7 +104,7 @@ function build_summary(records) {
 // kw: {status:[]|null, subtype, src, drug:[]|null, pharmacy:[]|null, start, end, q}
 function filter_records(records, kw) {
   let recs = records;
-  const { status, subtype, src, drug, pharmacy, start, end, q } = kw;
+  const { status, subtype, src, drug, pharmacy, executor, start, end, q } = kw;
   if (status && status.length) {
     const sset = new Set(status);
     recs = recs.filter(r => sset.has(r.medication_status));
@@ -116,6 +118,10 @@ function filter_records(records, kw) {
   if (pharmacy && pharmacy.length) {
     const pset = new Set(pharmacy);
     recs = recs.filter(r => pset.has(r.pharmacy || "未知"));
+  }
+  if (executor && executor.length) {
+    const eset = new Set(executor);
+    recs = recs.filter(r => eset.has(r.executor || "未知"));
   }
   if (q) {
     const ql = q.trim().toLowerCase();
@@ -150,6 +156,7 @@ function _facet(records, kw, exclude) {
   else if (exclude === "source") k.src = null;
   else if (exclude === "drug") k.drug = null;
   else if (exclude === "pharmacy") k.pharmacy = null;
+  else if (exclude === "executor") k.executor = null;
   else if (exclude === "time") { k.start = null; k.end = null; }
   return filter_records(records, k);
 }
@@ -160,6 +167,7 @@ function currentKw() {
     src: null,
     drug: state.drugs.size ? [...state.drugs] : null,
     pharmacy: state.pharmacies.size ? [...state.pharmacies] : null,
+    executor: state.executors.size ? [...state.executors] : null,
     start: state.start || null,
     end: state.end || null,
     q: state.q || null,
@@ -173,6 +181,7 @@ function summaryLocal(kw) {
   base.by_source = build_summary(_facet(STORE.records, kw, "source")).by_source;
   base.by_drug = build_summary(_facet(STORE.records, kw, "drug")).by_drug;
   base.by_pharmacy = build_summary(_facet(STORE.records, kw, "pharmacy")).by_pharmacy;
+  base.by_executor = build_summary(_facet(STORE.records, kw, "executor")).by_executor;
   base.by_month = build_summary(_facet(STORE.records, kw, "time")).by_month;
   base.by_task_status = countBy(STORE.records, r => r.task_status || "未知");
   return base;
@@ -246,6 +255,7 @@ function renderSummary(d) {
   });
   buildMs("drugMs", d.by_drug, state.drugs, "药品");
   buildMs("pharmMs", d.by_pharmacy, state.pharmacies, "药店");
+  buildMs("execMs", d.by_executor, state.executors, "执行人");
   renderSubtypeBar();
   updateFilterInfo();
 }
@@ -379,6 +389,7 @@ function updateFilterInfo() {
   if (state.subtype) parts.push("下钻=" + state.subtype);
   if (state.drugs.size) parts.push("药品=" + state.drugs.size + "项");
   if (state.pharmacies.size) parts.push("药店=" + state.pharmacies.size + "项");
+  if (state.executors.size) parts.push("执行人=" + state.executors.size + "项");
   if (state.start || state.end) parts.push("时间=" + ((state.start || "…") + "~" + (state.end || "…")));
   $("#filterInfo").textContent = parts.length ? ("筛选：" + parts.join(" · ")) : "";
 }
@@ -617,7 +628,7 @@ $("#clearAllBtn").onclick = () => {
 /* ============ 筛选交互 ============ */
 $("#clearBtn").onclick = () => {
   state.status.clear(); state.subtype = null;
-  state.drugs.clear(); state.pharmacies.clear();
+  state.drugs.clear(); state.pharmacies.clear(); state.executors.clear();
   state.start = state.end = null; state.q = ""; state.page = 1;
   $("#searchInput").value = ""; $("#startDate").value = ""; $("#endDate").value = "";
   refresh();

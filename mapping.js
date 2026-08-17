@@ -4,7 +4,7 @@
 const CANONICAL_FIELDS = [
   "source_file", "source_type", "task_status",
   "patient_name", "patient_id", "phone", "gender", "age",
-  "followup_time", "task_type", "drug_product", "indication", "pharmacy",
+  "followup_time", "task_type", "drug_product", "indication", "pharmacy", "executor",
   "is_key_patient", "medication_status", "irregularity_subtype",
   "stop_reduce_reason",
   "adherence", "summary", "remarks",
@@ -37,6 +37,8 @@ const KEYWORD_RULES = [
   ["summary",       ["随访小结", "小结", "随访记录"]],
   ["task_type",     ["任务类型", "任务摘要", "服务摘要", "随访类型"]],
   ["task_status",    ["任务状态", "随访任务状态", "任务执行状态"]],
+  // 执行人（随访操作人）：单列枚举，按关键字命中最佳列
+  ["executor",       ["执行人", "随访人", "操作员", "经办人", "负责人", "跟进人", "坐席", "话务员", "客服", "执行者"]],
   // —— 状态推导中间列（按来源关键字识别，不依赖具体列名）——
   ["_status_period",    ["用药周期状态", "周期状态"]],
   ["_nonstd_usage",     ["非标准用法用量的类型", "非标准用法", "非标准"]],
