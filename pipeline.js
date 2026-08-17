@@ -79,7 +79,7 @@ function detectSource(columns, colmap) {
   if (colmap) {
     if (colmap._purchased_on_time) return "overdue_purchase";
     if (colmap._status_period) return "enrollment";
-    if (colmap._nonstd_usage || colmap._is_dropout || colmap._follow_confirm) return "routine";
+    if (colmap._nonstd_usage || colmap._is_dropout || colmap._follow_confirm || colmap._near_usage) return "routine";
   }
   const normCols = columns.map(normHeader);
   for (const [stype, sig] of M.SIGNATURES) {
@@ -99,7 +99,7 @@ function detectSourceRow(row, colmap, fallback) {
     return idxs.some(i => cellStr(row[i]) != null);
   };
   // 日常随访：用药状态/易脱落/医嘱确认 任一有值
-  if (filled("_usage_status") || filled("_is_dropout") || filled("_follow_confirm") || filled("_nonstd_usage")) return "routine";
+  if (filled("_usage_status") || filled("_is_dropout") || filled("_follow_confirm") || filled("_nonstd_usage") || filled("_near_usage")) return "routine";
   // 过期购药
   if (filled("_purchased_on_time")) return "overdue_purchase";
   // 入组

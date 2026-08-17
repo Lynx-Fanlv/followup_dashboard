@@ -427,6 +427,7 @@ const KEYWORD_RULES = [
   ["_nonstd_usage",     ["非标准用法用量的类型", "非标准用法", "非标准"]],
   ["_dosage",           ["的用法用量", "当前用法用量"]],
   ["_usage_status",     ["是否计划按时用药", "是否按时用药", "计划按时用药", "当前用药情况"]],
+  ["_near_usage",       ["患者近一次用药情况", "近一次用药情况", "最近一次用药情况"]],
   ["_purchased_on_time",["已按时购药", "按时购药"]],
   ["_follow_confirm",   ["医生医嘱的确认", "按照医嘱服用", "医嘱的确认"]],
   ["_is_dropout",       ["是否判定患者属于易脱落"]],
@@ -547,6 +548,17 @@ function deriveStatus(sourceType, row, colmap) {
       if (/减量|减药|推迟|延迟/.test(nonstd)) return "不规范用药";
       return "不规范用药";
     }
+    // 「患者近一次用药情况？」是文件(1) 等模板的专用结构化状态列，直接给出近一次用药结论。
+    // 优先于下述 _follow_confirm / _dosage 等较弱推断列使用（不读随访小结自由文本）。
+    const near = g("_near_usage");
+    if (near) {
+      if (/按医嘱正常用药|正常用药|规律用药|按医嘱/.test(near)) return "规范用药";
+      if (/停[／/]?换|停药|换药|转药/.test(near)) return "脱落停药";
+      if (/延迟|推迟|延后|未按时/.test(near)) return "不规范用药";
+      if (/减量|减药/.test(near)) return "不规范用药";
+      // 「其他:自由文本原因」（如去世/更换医院/未拿药）不解析自由文本，保留「其他」
+      return "其他";
+    }
     // 根因含停药/转药也判脱落（「易脱落」标记仅作风险提示，不参与状态判定）
     const selfStop = g("stop_reduce_reason");
     if (isStopText(selfStop)) return "脱落停药";
@@ -583,6 +595,15 @@ function deriveIrregularitySubtype(sourceType, row, colmap) {
   const has = f => Boolean(g(f));
 
   if (sourceType === "routine") {
+    // 「患者近一次用药情况？」专用状态列：直接给出近一次用药的具体类型
+    const near = g("_near_usage");
+    if (near) {
+      if (/按医嘱正常用药|正常用药|规律用药|按医嘱/.test(near)) return null;
+      if (/停[／/]?换|停药|换药|转药/.test(near)) return near.includes("自行") ? "自行停药" : "医嘱停药";
+      if (/延迟|推迟|延后|未按时/.test(near)) return "延迟/未按时用药";
+      if (/减量|减药/.test(near)) return near.includes("自行") ? "自行减量" : "医嘱减量";
+      return "其他不规范";
+    }
     const usage = g("_usage_status");
     if (usage && /推迟|延迟|延后|提前/.test(usage)) return "延迟/未按时用药";
     if (usage && /减量|减药/.test(usage)) return usage.includes("自行") ? "自行减量" : "医嘱减量";
@@ -643,6 +664,8 @@ function _rawStatusText(sourceType, row, colmap) {
     if (u) return u;
     const t = g("_nonstd_usage");
     if (t) return t;
+    const near = g("_near_usage");
+    if (near) return near;
     if (g("_is_dropout") === "是") return "判定为易脱落";
     const f = g("_follow_confirm");
     if (f && f !== "医生确认，按医嘱执行") return f;
@@ -748,7 +771,7 @@ function detectSource(columns, colmap) {
   if (colmap) {
     if (colmap._purchased_on_time) return "overdue_purchase";
     if (colmap._status_period) return "enrollment";
-    if (colmap._nonstd_usage || colmap._is_dropout || colmap._follow_confirm) return "routine";
+    if (colmap._nonstd_usage || colmap._is_dropout || colmap._follow_confirm || colmap._near_usage) return "routine";
   }
   const normCols = columns.map(normHeader);
   for (const [stype, sig] of M.SIGNATURES) {
@@ -768,7 +791,7 @@ function detectSourceRow(row, colmap, fallback) {
     return idxs.some(i => cellStr(row[i]) != null);
   };
   // 日常随访：用药状态/易脱落/医嘱确认 任一有值
-  if (filled("_usage_status") || filled("_is_dropout") || filled("_follow_confirm") || filled("_nonstd_usage")) return "routine";
+  if (filled("_usage_status") || filled("_is_dropout") || filled("_follow_confirm") || filled("_nonstd_usage") || filled("_near_usage")) return "routine";
   // 过期购药
   if (filled("_purchased_on_time")) return "overdue_purchase";
   // 入组
