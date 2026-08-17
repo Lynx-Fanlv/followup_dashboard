@@ -13,6 +13,16 @@ const CANONICAL_FIELDS = [
 const STATUS_TAXONOMY = ["规范用药", "不规范用药", "脱落停药", "其他"];
 const SUBTYPE_TAXONOMY = ["自行减量", "医嘱减量", "医嘱停药", "延迟/未按时用药", "其他不规范"];
 
+// 小卡「专项原文」：按随访项目展示各自的结构化原列（真实列名 + 原值，不读随访小结自由文本）。
+// 仅列出于主表(DETAIL)之外的状态相关字段，避免与主表重复。
+const PROJECT_FIELDS = {
+  routine: ["_usage_status", "_near_usage", "_dosage", "_nonstd_usage",
+            "_follow_confirm", "_is_dropout", "_dropout_reason", "_reduce_reason", "adherence"],
+  overdue_purchase: ["_purchased_on_time", "_reduce_reason"],
+  enrollment: ["_status_period", "_reduce_reason"],
+};
+
+
 // 来源类型识别兜底：按顺序匹配「签名列」是否出现在表头中（关键字子串，抗尾标）
 const SIGNATURES = [
   ["overdue_purchase", "据上次随访后，是否已按时购药？"],
@@ -297,10 +307,35 @@ function _rawStatusText(sourceType, row, colmap) {
   return null;
 }
 
+// 小卡「专项原文」：按随访项目返回 [{label, value}]，label 用真实列名、value 用原单元格值。
+// row 为索引化对象（row[idx] = 清洗后字符串），colmap 存列索引，headers 为原始表头数组。
+function projectFields(sourceType, row, colmap, headers) {
+  const keys = PROJECT_FIELDS[sourceType] || [];
+  const out = [];
+  const seen = new Set();
+  for (const f of keys) {
+    const c = colmap[f];
+    if (c == null) continue;
+    const idxs = Array.isArray(c) ? c : [c];
+    for (const idx of idxs) {
+      const label = (headers && headers[idx] != null) ? String(headers[idx]).trim() : f;
+      const raw = (row != null && row[idx] != null) ? row[idx] : null;
+      const val = raw == null ? "" : String(raw).trim();
+      if (!val) continue;
+      const pairKey = label + "\u0001" + val;
+      if (seen.has(pairKey)) continue;
+      seen.add(pairKey);
+      out.push({ label, value: val });
+    }
+  }
+  return out;
+}
+
 // 浏览器端：导出到全局，供 pipeline.js / app.js 使用（非模块化脚本共享词法作用域）
 if (typeof window !== "undefined") {
   window.Mapping = { CANONICAL_FIELDS, STATUS_TAXONOMY, SUBTYPE_TAXONOMY, SIGNATURES,
     KEYWORD_RULES, KEYWORD_RULES_MULTI, normHeader, _cell, _gtext,
     isPlaceholder, isStopOption, isStopText,
-    deriveStatus, deriveIrregularitySubtype, _rawStatusText };
+    deriveStatus, deriveIrregularitySubtype, _rawStatusText,
+    PROJECT_FIELDS, projectFields };
 }

@@ -455,10 +455,16 @@ function rowHtml(rec, cols, idx) {
   }).join("") + "</tr>";
 }
 function expandHtml(rec, colspan) {
-  const sec = (lbl, val) => val ? `<div><span class="eb-lbl">${lbl}：</span>${esc(val)}</div>` : "";
+  const sec = (lbl, val) => val ? `<div class="eb-row"><span class="eb-lbl">${lbl}：</span><span class="eb-val">${esc(val)}</span></div>` : "";
+  // 推导字段（与主表互补，不在 DETAIL 重复列）
+  const derived = sec("不规范类型", rec.irregularity_subtype) + sec("停药/减量根本原因", rec.stop_reduce_reason);
+  // 专项原文：按随访项目展示各自的结构化原列（真实列名 + 原值）
+  const pf = (rec.project_fields || []).filter(f => f && f.value);
+  const rawHtml = pf.map(f => `<div class="eb-row"><span class="eb-lbl">${esc(f.label)}：</span><span class="eb-val">${esc(f.value)}</span></div>`).join("");
+  const srcLabel = SRC_LABEL[rec.source_type] || rec.source_type || "其它";
   return `<tr class="expand-row"><td colspan="${colspan}"><div class="expand-box">`
-    + sec("不规范类型", rec.irregularity_subtype)
-    + sec("停药/减量根本原因", rec.stop_reduce_reason)
+    + (derived ? `<div class="eb-sec">${derived}</div>` : "")
+    + (rawHtml ? `<div class="eb-sec eb-sec-proj"><div class="eb-sec-title">${esc(srcLabel)} · 原始字段</div>${rawHtml}</div>` : "")
     + sec("备注", rec.remarks)
     + sec("随访小结", rec.summary)
     + `</div></td></tr>`;

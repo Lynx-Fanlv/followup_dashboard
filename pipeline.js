@@ -190,6 +190,8 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
     rec.medication_status_raw = M._rawStatusText(sourceType, row, colmap) || status;
     const sub = status === "不规范用药" ? M.deriveIrregularitySubtype(sourceType, row, colmap) : null;
     rec.irregularity_subtype = sub;
+    // 小卡「专项原文」：按 source_type 收集本项目相关的真实列名+原值（不读随访小结）
+    rec.project_fields = M.projectFields(sourceType, row, colmap, cols);
     records.push(rec);
   }
   return records;
