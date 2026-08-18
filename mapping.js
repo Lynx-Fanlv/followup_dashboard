@@ -16,7 +16,7 @@ const SUBTYPE_TAXONOMY = ["自行减量", "医嘱减量", "医嘱停药", "延�
 // 小卡「专项原文」：按随访项目展示各自的结构化原列（真实列名 + 原值，不读随访小结自由文本）。
 // 仅列出于主表(DETAIL)之外的状态相关字段，避免与主表重复。
 const PROJECT_FIELDS = {
-  routine: ["_usage_status", "_near_usage", "_dosage", "_nonstd_usage",
+  routine: ["_usage_status", "_current_status", "_near_usage", "_dosage", "_nonstd_usage",
             "_follow_confirm", "_is_dropout", "_dropout_reason", "_reduce_reason", "adherence"],
   overdue_purchase: ["_purchased_on_time", "_reduce_reason"],
   enrollment: ["_status_period", "_reduce_reason"],
@@ -54,6 +54,7 @@ const KEYWORD_RULES = [
   ["_nonstd_usage",     ["非标准用法用量的类型", "非标准用法", "非标准"]],
   ["_dosage",           ["的用法用量", "当前用法用量"]],
   ["_usage_status",     ["是否计划按时用药", "是否按时用药", "计划按时用药", "当前用药情况"]],
+  ["_current_status",   ["患者目前的用药状态", "目前的用药状态"]],
   ["_near_usage",       ["患者近一次用药情况", "近一次用药情况", "最近一次用药情况"]],
   ["_purchased_on_time",["已按时购药", "按时购药"]],
   ["_follow_confirm",   ["医生医嘱的确认", "按照医嘱服用", "医嘱的确认"]],
@@ -144,6 +145,16 @@ function deriveStatus(sourceType, row, colmap) {
     return "其他";
   }
   if (sourceType === "routine") {
+    // 「患者目前的用药状态是？」结构化状态列：直接给出目前用药状态结论
+    // （规范用药/减量用药/延迟或暂停用药/未随访到），优先级最高。
+    const cur = g("_current_status");
+    if (cur) {
+      if (/规范用药|正常用药|按医嘱/.test(cur)) return "规范用药";
+      if (/减量/.test(cur)) return "不规范用药";
+      if (/延迟|暂停|推迟|未按时/.test(cur)) return "不规范用药";
+      // 「未随访到」「其他:…」等非状态结论：不解析自由文本，保留「其他」
+      return "其他";
+    }
     // 优先用「是否计划按时用药?」等状态列（真实主力表列名）
     const usage = g("_usage_status");
     if (usage) {
@@ -222,6 +233,14 @@ function deriveIrregularitySubtype(sourceType, row, colmap) {
   const has = f => Boolean(g(f));
 
   if (sourceType === "routine") {
+    // 「患者目前的用药状态是？」专用状态列：直接派生具体类型（规范用药返回 null）
+    const cur = g("_current_status");
+    if (cur) {
+      if (/规范用药|正常用药|按医嘱/.test(cur)) return null;
+      if (/减量/.test(cur)) return cur.includes("自行") ? "自行减量" : (cur.includes("医嘱") ? "医嘱减量" : "其他不规范");
+      if (/延迟|暂停|推迟|未按时/.test(cur)) return "延迟/未按时用药";
+      return "其他不规范";
+    }
     // 「患者近一次用药情况？」专用状态列：直接给出近一次用药的具体类型
     const near = g("_near_usage");
     if (near) {
@@ -289,6 +308,8 @@ function _rawStatusText(sourceType, row, colmap) {
     // 优先回显专用状态列原文（如"停用百泽安"），这是判定的直接依据
     const u = g("_usage_status");
     if (u) return u;
+    const c = g("_current_status");
+    if (c) return c;
     const t = g("_nonstd_usage");
     if (t) return t;
     const near = g("_near_usage");
