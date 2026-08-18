@@ -406,6 +406,7 @@ const SUBTYPE_TAXONOMY = ["自行减量", "医嘱减量", "医嘱停药", "延�
 // 仅列出于主表(DETAIL)之外的状态相关字段，避免与主表重复。
 const PROJECT_FIELDS = {
   routine: ["_usage_status", "_current_status", "_near_usage", "_dosage", "_nonstd_usage",
+            "_still_using", "_stop_advice", "_sotoclax_start", "_climb_stage",
             "_follow_confirm", "_is_dropout", "_dropout_reason", "_reduce_reason", "adherence"],
   overdue_purchase: ["_purchased_on_time", "_reduce_reason"],
   enrollment: ["_status_period", "_reduce_reason"],
@@ -445,6 +446,10 @@ const KEYWORD_RULES = [
   ["_usage_status",     ["是否计划按时用药", "是否按时用药", "计划按时用药", "当前用药情况"]],
   ["_current_status",   ["患者目前的用药状态", "目前的用药状态"]],
   ["_near_usage",       ["患者近一次用药情况", "近一次用药情况", "最近一次用药情况"]],
+  ["_still_using",      ["还在按照处方继续使用", "继续使用百悦泽", "继续使用百泽安"]],
+  ["_stop_advice",      ["停止用药，主要是谁的建议", "停止用药，主要"]],
+  ["_sotoclax_start",   ["是否开始服用索托克拉", "开始服用索托克拉"]],
+  ["_climb_stage",      ["爬坡阶段", "目前爬坡阶段"]],
   ["_purchased_on_time",["已按时购药", "按时购药"]],
   ["_follow_confirm",   ["医生医嘱的确认", "按照医嘱服用", "医嘱的确认"]],
   ["_is_dropout",       ["是否判定患者属于易脱落"]],
@@ -586,6 +591,22 @@ function deriveStatus(sourceType, row, colmap) {
       // 「其他:自由文本原因」（如去世/更换医院/未拿药）不解析自由文本，保留「其他」
       return "其他";
     }
+    // 「是否还在按照处方继续使用（百泽安/百悦泽）？」脱落预警模板专用状态列：
+    // 正在使用→规范；已停药→脱落；不确定/没怎么用→不规范
+    const still = g("_still_using");
+    if (still) {
+      if (/是的|正在使用|在吃|在服|继续/.test(still)) return "规范用药";
+      if (/停药|没有使用|没有在吃|停止|停用/.test(still)) return "脱落停药";
+      if (/没怎么用|不确定|漏/.test(still)) return "不规范用药";
+    }
+    // 「停止用药，主要是谁的建议？」：明确停药表述 → 脱落停药；联系失败/情况不明不判
+    const stopW = g("_stop_advice");
+    if (stopW && /医生明确告诉停药|自己决定|停药|停用|暂不用药|暂停用药|去世|换药|未用药|不用了|停止治疗/.test(stopW)) return "脱落停药";
+    // 索托克拉爬坡模板：已开始服用 / 处于持续用药或爬坡阶段 → 规范（按医嘱方案用药）
+    const soto = g("_sotoclax_start");
+    if (soto && /^是$/.test(soto)) return "规范用药";
+    const climb = g("_climb_stage");
+    if (climb && /持续用药|爬坡|剂量递增/.test(climb)) return "规范用药";
     // 根因含停药/转药也判脱落（「易脱落」标记仅作风险提示，不参与状态判定）
     const selfStop = g("stop_reduce_reason");
     if (isStopText(selfStop)) return "脱落停药";
@@ -638,6 +659,14 @@ function deriveIrregularitySubtype(sourceType, row, colmap) {
       if (/延迟|推迟|延后|未按时/.test(near)) return "延迟/未按时用药";
       if (/减量|减药/.test(near)) return near.includes("自行") ? "自行减量" : "医嘱减量";
       return "其他不规范";
+    }
+    // 「还在按处方继续使用？」：不确定/没怎么用 → 延迟未按时；停药 → 按建议方细分
+    const still = g("_still_using");
+    if (still && /没怎么用|不确定/.test(still)) return "延迟/未按时用药";
+    const stopW = g("_stop_advice");
+    if (stopW) {
+      if (/医生明确告诉停药|遵医嘱/.test(stopW)) return "医嘱停药";
+      if (/自己决定|自行/.test(stopW)) return "自行停药";
     }
     const usage = g("_usage_status");
     if (usage && /推迟|延迟|延后|提前/.test(usage)) return "延迟/未按时用药";
@@ -703,6 +732,14 @@ function _rawStatusText(sourceType, row, colmap) {
     if (t) return t;
     const near = g("_near_usage");
     if (near) return near;
+    const still = g("_still_using");
+    if (still) return still;
+    const stopW = g("_stop_advice");
+    if (stopW) return stopW;
+    const soto = g("_sotoclax_start");
+    if (soto) return soto;
+    const climb = g("_climb_stage");
+    if (climb && climb !== "本次随访不涉及") return climb;
     if (g("_is_dropout") === "是") return "判定为易脱落";
     const f = g("_follow_confirm");
     if (f && f !== "医生确认，按医嘱执行") return f;
@@ -833,7 +870,7 @@ function detectSource(columns, colmap) {
   if (colmap) {
     if (colmap._purchased_on_time) return "overdue_purchase";
     if (colmap._status_period) return "enrollment";
-    if (colmap._nonstd_usage || colmap._is_dropout || colmap._follow_confirm || colmap._near_usage || colmap._current_status) return "routine";
+    if (colmap._nonstd_usage || colmap._is_dropout || colmap._follow_confirm || colmap._near_usage || colmap._current_status || colmap._still_using || colmap._stop_advice || colmap._sotoclax_start || colmap._climb_stage) return "routine";
   }
   const normCols = columns.map(normHeader);
   for (const [stype, sig] of M.SIGNATURES) {
@@ -853,7 +890,7 @@ function detectSourceRow(row, colmap, fallback) {
     return idxs.some(i => cellStr(row[i]) != null);
   };
   // 日常随访：用药状态/易脱落/医嘱确认 任一有值
-  if (filled("_usage_status") || filled("_is_dropout") || filled("_follow_confirm") || filled("_nonstd_usage") || filled("_near_usage") || filled("_current_status")) return "routine";
+  if (filled("_usage_status") || filled("_is_dropout") || filled("_follow_confirm") || filled("_nonstd_usage") || filled("_near_usage") || filled("_current_status") || filled("_still_using") || filled("_stop_advice") || filled("_sotoclax_start") || filled("_climb_stage")) return "routine";
   // 过期购药
   if (filled("_purchased_on_time")) return "overdue_purchase";
   // 入组
