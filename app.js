@@ -19,6 +19,7 @@ const EXPORT_COLS = [
   ["medication_status_raw", "用药状态"],
   ["irregularity_subtype", "不规范类型"],
   ["stop_reduce_reason", "停药/减量根本原因"],
+  ["dosage_raw", "用法用量"],
   ["remarks", "备注"],
 ];
 
@@ -34,7 +35,7 @@ const DETAIL = [["patient_name", "患者"], ["phone", "电话"], ["gender", "性
   ["followup_time", "随访时间"], ["drug_product", "药品"], ["indication", "适应症"],
   ["pharmacy", "药店"], ["executor", "执行人"], ["medication_status_raw", "用药状态"],
   ["irregularity_subtype", "不规范类型"],
-  ["stop_reduce_reason", "停药/减量根本原因"], ["remarks", "备注"]];
+  ["stop_reduce_reason", "停药/减量根本原因"], ["dosage_raw", "用法用量"], ["remarks", "备注"]];
 
 const state = { status: new Set(), subtype: null, drugs: new Set(), pharmacies: new Set(), executors: new Set(), start: null, end: null,
   q: "", view: "detail", page: 1, pageSize: 50, hiddenCols: new Set(),

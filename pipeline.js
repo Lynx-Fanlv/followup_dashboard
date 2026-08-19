@@ -207,6 +207,8 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
     rec.irregularity_subtype = sub;
     // 小卡「专项原文」：按 source_type 收集本项目相关的真实列名+原值（不读随访小结）
     rec.project_fields = M.projectFields(sourceType, row, colmap, cols);
+    // 「用法用量」原文（如「确认当前泽布替尼的用法用量」），供明细表/导出展示
+    rec.dosage_raw = M._gtext(row, colmap, "_dosage") || null;
     records.push(rec);
   }
   return records;
