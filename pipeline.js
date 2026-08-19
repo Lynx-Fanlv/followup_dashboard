@@ -144,6 +144,20 @@ function rowToObj(cols, r) {
   return o;
 }
 
+// 「其他」状态行的细分标注：已取消 / 联系失败 / 未执行（无任何结构化用药数据可判的行）。
+// 判定优先级：取消原因列有值 → 已取消；随访文本含联系失败特征 → 联系失败；
+// 任务状态为未执行态（临期待执行/待执行/超期未完成/执行失败）→ 未执行；否则 null（保持「其他」）。
+function classifyOtherStatus(rec, row, colmap) {
+  const cancelCols = asList(colmap._cancel_reason);
+  const cancelTxt = cancelCols.map(c => cellStr(row[c])).filter(Boolean).join(" ");
+  if (cancelTxt) return "已取消";
+  const txt = [rec.stop_reduce_reason, rec.remarks, rec.summary].filter(Boolean).join(" ");
+  if (/未接|空号|关机|拒接|联系不上|停机|失联|未拨通|打不通|不认识患者|联系未果|电话不接/.test(txt)) return "联系失败";
+  const ts = rec.task_status || "";
+  if (/临期待执行|待执行|超期未完成|执行失败/.test(ts)) return "未执行";
+  return null;
+}
+
 function normalizeRows(rows, cols, sourceFile, sheetName) {
   const colmap = mapColumns(cols);
   const fileSource = detectSource(cols, colmap);
@@ -188,7 +202,8 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
     const status = M.deriveStatus(sourceType, row, colmap);
     rec.medication_status = status;
     rec.medication_status_raw = M._rawStatusText(sourceType, row, colmap) || status;
-    const sub = status === "不规范用药" ? M.deriveIrregularitySubtype(sourceType, row, colmap) : null;
+    const sub = status === "不规范用药" ? M.deriveIrregularitySubtype(sourceType, row, colmap)
+              : (status === "其他" ? classifyOtherStatus(rec, row, colmap) : null);
     rec.irregularity_subtype = sub;
     // 小卡「专项原文」：按 source_type 收集本项目相关的真实列名+原值（不读随访小结）
     rec.project_fields = M.projectFields(sourceType, row, colmap, cols);
