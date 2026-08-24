@@ -217,6 +217,7 @@
   .mini-table th,.mini-table td{padding:6px 10px}
   .pagination{display:flex;justify-content:space-between;align-items:center;margin-top:10px;
     font-size:13px;color:var(--muted)}
+  .pg-size{margin:0 2px;padding:2px 6px;border:1px solid var(--line);border-radius:6px;font-size:12px;color:var(--text);background:#fff}
   .pg-btns{display:flex;gap:8px}
   .sec-title{font-size:14px;font-weight:600;margin:22px 0 4px;color:var(--text)}
   .hint{color:var(--muted);font-size:12px;margin:2px 0 0}
@@ -1158,6 +1159,9 @@ function build_summary(records) {
   const months = records.map(r => _month(r.followup_time)).filter(Boolean).sort();
   const by_month = {};
   for (const m of months) by_month[m] = (by_month[m] || 0) + 1;
+  const days = records.map(r => _extract_date(r.followup_time)).filter(Boolean).sort();
+  const by_day = {};
+  for (const d of days) by_day[d] = (by_day[d] || 0) + 1;
   return {
     total: records.length,
     by_status: countBy(records, r => r.medication_status),
@@ -1168,6 +1172,7 @@ function build_summary(records) {
     by_pharmacy: countBy(records, r => r.pharmacy || "未知"),
     by_executor: countBy(records, r => r.executor || "未知"),
     by_month,
+    by_day,
     taxonomy: STATUS_TAXONOMY,
     subtypes: SUBTYPE_TAXONOMY,
   };
@@ -1254,6 +1259,7 @@ function summaryLocal(kw) {
   base.by_pharmacy = build_summary(_facet(STORE.records, kw, "pharmacy")).by_pharmacy;
   base.by_executor = build_summary(_facet(STORE.records, kw, "executor")).by_executor;
   base.by_month = build_summary(_facet(STORE.records, kw, "time")).by_month;
+  base.by_day = build_summary(_facet(STORE.records, kw, "time")).by_day;
   base.by_task_status = countBy(STORE.records, r => r.task_status || "未知");
   return base;
 }
@@ -1388,7 +1394,16 @@ function renderGlobal(d) {
 function renderCharts(d) {
   $("#donutChart").innerHTML = donutChart(d.by_status || {});
   $("#drugChart").innerHTML = barChart(d.by_drug || {});
-  $("#trendChart").innerHTML = lineChart(d.by_month || {});
+  // 随访时间趋势：时间跨度 ≤ 31 天（约一个月）时按「天」画折线，否则按「月」
+  const bd = d.by_day || {};
+  const bm = d.by_month || {};
+  const dates = Object.keys(bd).sort();
+  let useDay = dates.length > 0;
+  if (dates.length >= 2) {
+    const span = +new Date(dates[dates.length - 1]) - +new Date(dates[0]);
+    useDay = span <= 31 * 24 * 3600 * 1000;
+  }
+  $("#trendChart").innerHTML = lineChart(useDay ? bd : bm, useDay ? "day" : "month");
   bindTrendHover();
 }
 
@@ -1463,7 +1478,7 @@ function barChart(data) {
   }).join("");
   return `<div class="bars">${rows}</div>`;
 }
-function lineChart(data) {
+function lineChart(data, unit) {
   const entries = Object.entries(data);
   if (!entries.length) return '<div class="chart-empty">暂无数据</div>';
   const W = 360, H = 140, P = 28, PT = 12;
@@ -1474,9 +1489,11 @@ function lineChart(data) {
   const pts = entries.map(([, v], i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
   const dots = entries.map(([k, v], i) =>
     `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3" fill="#3b5bdb"></circle>`).join("");
+  // 横坐标标签：按月显示「YY-MM」，按天显示「MM-DD」
+  const fmt = k => unit === "day" ? k.slice(5) : k.slice(2);
   const step = Math.ceil(n / 8);
   const labels = entries.map(([k], i) =>
-    (i % step === 0 || i === n - 1) ? `<text x="${X(i).toFixed(1)}" y="${H - 8}" font-size="9" text-anchor="middle" fill="#868e96">${esc(k.slice(2))}</text>` : "").join("");
+    (i % step === 0 || i === n - 1) ? `<text x="${X(i).toFixed(1)}" y="${H - 8}" font-size="9" text-anchor="middle" fill="#868e96">${esc(fmt(k))}</text>` : "").join("");
   // 基线
   const baseline = `<line x1="${P}" y1="${H - P}" x2="${W - P}" y2="${H - P}" stroke="#e9ecef" stroke-width="1"/>`;
   // 预计算每个点的 viewBox 坐标，供悬停吸附使用
@@ -1649,14 +1666,23 @@ function patCardHtml(p, idx) {
 
 function renderPagination(total) {
   const pages = Math.max(1, Math.ceil(total / state.pageSize));
+  const opts = [50, 100, 200].map(n => `<option value="${n}" ${state.pageSize === n ? "selected" : ""}>${n} 条/页</option>`).join("");
   $("#pagination").innerHTML = `
-    <span>共 ${total} 条 · 每页 ${state.pageSize} 条 · 第 ${state.page}/${pages} 页</span>
+    <span>共 ${total} 条 · 第 ${state.page}/${pages} 页 · 每页
+      <select id="pageSizeSel" class="pg-size" title="每页显示条数">${opts}</select>
+    </span>
     <span class="pg-btns">
       <button class="btn ghost sm" id="prevPg" ${state.page <= 1 ? "disabled" : ""}>‹ 上一页</button>
       <button class="btn ghost sm" id="nextPg" ${state.page >= pages ? "disabled" : ""}>下一页 ›</button>
     </span>`;
-  $("#prevPg").onclick = () => { if (state.page > 1) { state.page--; renderCurrentView(); window.scrollTo({ top: 0, behavior: "smooth" }); } };
-  $("#nextPg").onclick = () => { if (state.page < pages) { state.page++; renderCurrentView(); window.scrollTo({ top: 0, behavior: "smooth" }); } };
+  // 翻页后只把表格容器（明细表）滚回顶部，页面滚动条保持原位
+  const scrollTableTop = () => { const w = $("#detailView"); if (w) w.scrollTop = 0; };
+  $("#prevPg").onclick = () => { if (state.page > 1) { state.page--; renderCurrentView(); scrollTableTop(); } };
+  $("#nextPg").onclick = () => { if (state.page < pages) { state.page++; renderCurrentView(); scrollTableTop(); } };
+  $("#pageSizeSel").onchange = e => {
+    const n = parseInt(e.target.value, 10);
+    if (n && n !== state.pageSize) { state.pageSize = n; state.page = 1; renderCurrentView(); }
+  };
 }
 
 function renderCurrentView() {
