@@ -957,6 +957,10 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
   const records = [];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
+    // 跳过无患者名的行：多 sheet 文件中常见「字段说明/注释」附表会被误当数据
+    //（如文件(1) 的 Sheet1 为 2 列说明表，178 行均无患者名 → 不应产生记录）
+    const pCol = colmap.patient_name;
+    if (pCol == null || !cellStr(row[Array.isArray(pCol) ? pCol[0] : pCol])) continue;
     const sourceType = detectSourceRow(row, colmap, fileSource) || "unknown";
     const rid = `${sourceFile}::${sourceType}::${sheetName || "sheet"}::${i}`;
     const rec = { source_file: sourceFile, source_type: sourceType, _row_id: rid };
