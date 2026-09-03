@@ -183,16 +183,24 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
         rec[field] = cellStr(row[col]);
       }
     }
-    // 备注：合并「自由文本」列 + 随访小结
-    let rcols = asList(colmap.remarks);
-    if (colmap.summary) rcols = rcols.concat([colmap.summary]);
-    // colmap 存的是列索引（索引化行存储）；row 是对象无 length，colmap 索引本身即合法，仅排除 null
-    rcols = rcols.filter(c => c != null);
+    // 备注：患者反馈/顾虑/备注等专有字段优先；仅当这些字段全空（或全是占位值）时，
+    // 才回退取「随访小结」列内容——小结是结构化模板文字，不作备注首选。
+    let rcols = asList(colmap.remarks).filter(c => c != null);
     const parts = [];
     for (const c of rcols) { const tv = cellStr(row[c]); if (tv && !M.isPlaceholder(tv)) parts.push(tv); }
-    rec.remarks = parts.length ? parts.join("\n") : null;
-    // 停药/减量根本原因：colmap 存的是列索引（索引化行存储）；row 是对象无 length，仅排除 null
-    const reasonCols = asList(colmap.stop_reduce_reason).filter(c => c != null);
+    let remarks = parts.length ? parts.join("\n") : null;
+    if (!remarks && colmap.summary != null) {
+      const sCol = Array.isArray(colmap.summary) ? colmap.summary[0] : colmap.summary;
+      const sv = sCol != null ? cellStr(row[sCol]) : null;
+      if (sv && !M.isPlaceholder(sv)) remarks = sv;
+    }
+    rec.remarks = remarks;
+    // 停药/减量根本原因：stop_reduce_reason 命中的列 + _reduce_reason 推导列
+    //（如「患者停、减量的具体原因是？」「减量的具体原因是什么？」亦属根本原因，并入展示）
+    let reasonCols = asList(colmap.stop_reduce_reason).filter(c => c != null);
+    if (colmap._reduce_reason != null) {
+      reasonCols = reasonCols.concat(asList(colmap._reduce_reason).filter(c => c != null));
+    }
     const rparts = []; const seen = new Set();
     for (const c of reasonCols) {
       const tv = cellStr(row[c]);
