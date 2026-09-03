@@ -777,25 +777,73 @@ $("#colBtn").onclick = e => {
   p.classList.remove("hidden");
 };
 
-/* ============ 导出（客户端 SheetJS） ============ */
-function doExport(desen) {
+/* ============ 导出（客户端，ExcelJS 带样式；SheetJS 兜底） ============ */
+// 用药状态着色（Excel 惯例浅底深字；argb 需 8 位）
+const EXPORT_STATUS_STYLE = {
+  "规范用药": ["FFC6EFCE", "FF006100"],   // 绿底 深绿字
+  "不规范用药": ["FFFFC7CE", "FF9C0006"], // 红底 深红字
+  "脱落停药": ["FFFFE2C7", "FFC55A11"],  // 橙底 深橙字
+  "其他": ["FFF2F2F2", "FF595959"],      // 灰底 深灰字
+};
+function exportRowVals(r) {
+  return EXPORT_COLS.map(([k]) => {
+    let v = r[k];
+    if (k === "medication_status_raw") v = r.medication_status_raw || r.medication_status;
+    return v == null ? "" : String(v);
+  });
+}
+async function doExport(desen) {
   const recs = filter_records(STORE.records, currentKw());
   if (!recs.length) { alert("当前筛选无数据可导出"); return; }
   const rows = desen ? recs.map(r => window.Pipeline.desensitize(r)) : recs;
-  const aoa = [EXPORT_COLS.map(([, l]) => l)];
-  for (const r of rows) {
-    aoa.push(EXPORT_COLS.map(([k]) => {
-      let v = r[k];
-      if (k === "medication_status_raw") v = r.medication_status_raw || r.medication_status;
-      return v == null ? "" : v;
-    }));
+  const fname = desen ? "随访明细_脱敏.xlsx" : "随访明细_未脱敏.xlsx";
+  const mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  // 首选 ExcelJS：表头加粗+底色+冻结、用药状态按四态着色
+  if (window.ExcelJS) {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("随访明细");
+    ws.addRow(EXPORT_COLS.map(([, l]) => l));
+    const hrow = ws.getRow(1);
+    hrow.height = 20;
+    hrow.eachCell(c => {
+      c.font = { bold: true, color: { argb: "FF1F2937" } };
+      c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9E1F2" } };
+      c.alignment = { horizontal: "center", vertical: "middle" };
+      c.border = { bottom: { style: "thin", color: { argb: "FFB0BEC5" } } };
+    });
+    ws.views = [{ state: "frozen", ySplit: 1 }];
+    const stateColIdx = EXPORT_COLS.findIndex(([k]) => k === "medication_status_raw");
+    for (const r of rows) {
+      ws.addRow(exportRowVals(r));
+      const ridx = ws.rowCount;
+      if (stateColIdx >= 0) {
+        const st = r.medication_status || "其他";
+        const [fg, fc] = EXPORT_STATUS_STYLE[st] || EXPORT_STATUS_STYLE["其他"];
+        const cell = ws.getCell(ridx, stateColIdx + 1);
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fg } };
+        cell.font = { bold: true, color: { argb: fc } };
+        cell.alignment = { horizontal: "center" };
+      }
+    }
+    // 列宽：文本列放宽，其余按表头
+    const wideCols = new Set(["remarks", "stop_reduce_reason", "summary", "dosage_raw", "medication_status_raw"]);
+    EXPORT_COLS.forEach(([k, l], i) => {
+      const w = wideCols.has(k) ? 46 : Math.max(8, Math.min(20, l.length + 6));
+      ws.getColumn(i + 1).width = w;
+    });
+    const buf = await wb.xlsx.writeBuffer();
+    download(new Blob([buf], { type: mime }), fname);
+    return;
   }
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "随访明细");
-  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-  download(new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
-    desen ? "随访明细_脱敏.xlsx" : "随访明细_未脱敏.xlsx");
+  // 兜底 SheetJS（无样式，仅当 exceljs 未加载时）
+  const aoa = [EXPORT_COLS.map(([, l]) => l)];
+  for (const r of rows) aoa.push(exportRowVals(r));
+  const ws2 = XLSX.utils.aoa_to_sheet(aoa);
+  ws2["!cols"] = EXPORT_COLS.map(([, l], i) => ({ wch: Math.max(8, l.length + 6) }));
+  const wb2 = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb2, ws2, "随访明细");
+  const out = XLSX.write(wb2, { bookType: "xlsx", type: "array" });
+  download(new Blob([out], { type: mime }), fname);
 }
 $("#exportDesenBtn").onclick = () => doExport(true);
 $("#exportPlainBtn").onclick = () => {
@@ -831,8 +879,9 @@ async function doSnapshot(desen) {
     // 直接序列化当前页面：逻辑脚本已内联在页面中，无需 fetch，
     // 因此 https 与 file://（双击打开）都能生成可离线打开的自包含快照。
     let html = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
-    // 快照为只读视图，不需要 xlsx 库；剥离外链，避免 file:// 下加载失败
+    // 快照为只读视图，不需要 xlsx / exceljs 库；剥离外链，避免 file:// 下加载失败
     html = html.replace('<' + 'script src="vendor/xlsx.full.min.js"></sc' + 'ript>', "");
+    html = html.replace('<' + 'script src="vendor/exceljs.min.js"></sc' + 'ript>', "");
     // 注意：本文件源码中已含有字符串 "</body>"，若用 html.replace("</body>", ...) 会命中源码里的那个，
     // 把数据脚本塞进 app.js 源码字符串、而非文档真正的 </body> 前。必须用 lastIndexOf 定位文档末尾的真实 </body>。
     const bodyIdx = html.lastIndexOf("</body>");
