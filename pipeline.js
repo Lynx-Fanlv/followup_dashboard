@@ -196,10 +196,14 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
     }
     rec.remarks = remarks;
     // 停药/减量根本原因：stop_reduce_reason 命中的列 + _reduce_reason 推导列
-    //（如「患者停、减量的具体原因是？」「减量的具体原因是什么？」亦属根本原因，并入展示）
+    //（如「患者停、减量的具体原因是？」「减量的具体原因是什么？」）+ _stop_advice
+    //（「患者这次停止用药，主要是谁的建议？」）均属根本原因/停因，并入展示
     let reasonCols = asList(colmap.stop_reduce_reason).filter(c => c != null);
     if (colmap._reduce_reason != null) {
       reasonCols = reasonCols.concat(asList(colmap._reduce_reason).filter(c => c != null));
+    }
+    if (colmap._stop_advice != null) {
+      reasonCols = reasonCols.concat(asList(colmap._stop_advice).filter(c => c != null));
     }
     const rparts = []; const seen = new Set();
     for (const c of reasonCols) {
