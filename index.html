@@ -207,6 +207,7 @@
   .pat-head{display:flex;align-items:center;gap:12px;padding:11px 16px;cursor:pointer;flex-wrap:wrap}
   .pat-head:hover{background:#f9fbff}
   .pat-name{font-weight:600;font-size:14px}
+  .pat-ind{font-size:12px;color:#3b5bdb;background:#edf2ff;border:1px solid #dbe4ff;border-radius:20px;padding:1px 9px;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
   .pat-phone{color:var(--muted);font-size:13px}
   .pat-tags{display:flex;gap:5px;flex-wrap:wrap}
   .pat-count{margin-left:auto;color:var(--muted);font-size:12px}
@@ -1658,6 +1659,9 @@ function patCardHtml(p, idx) {
     const ta = a.followup_time || "", tb = b.followup_time || "";
     return tb.localeCompare(ta);
   });
+  // 适应症：取该患者最末一次随访记录；若无则逐次往前（记录已按时间降序）
+  let latestInd = "";
+  for (const r of recs) { if (r.indication) { latestInd = r.indication; break; } }
   const recRows = recs.map(r => {
     const norm = r["medication_status"] || "";
     const sub = r["irregularity_subtype"] || "";
@@ -1670,6 +1674,7 @@ function patCardHtml(p, idx) {
   return `<div class="pat-card">
     <div class="pat-head">
       <span class="pat-name">${esc(p.patient_name)}</span>
+      ${latestInd ? `<span class="pat-ind">${esc(latestInd)}</span>` : ""}
       <span class="pat-phone">${esc(p.phone || "")}</span>
       <span class="pat-tags">${tags}</span>
       <span class="pat-count">${p.count} 次随访 · 最近 ${esc(p.latest || "—")}</span>

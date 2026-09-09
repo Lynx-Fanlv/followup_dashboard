@@ -569,6 +569,9 @@ function patCardHtml(p, idx) {
     const ta = a.followup_time || "", tb = b.followup_time || "";
     return tb.localeCompare(ta);
   });
+  // 适应症：取该患者最末一次随访记录；若无则逐次往前（记录已按时间降序）
+  let latestInd = "";
+  for (const r of recs) { if (r.indication) { latestInd = r.indication; break; } }
   const recRows = recs.map(r => {
     const norm = r["medication_status"] || "";
     const sub = r["irregularity_subtype"] || "";
@@ -581,6 +584,7 @@ function patCardHtml(p, idx) {
   return `<div class="pat-card">
     <div class="pat-head">
       <span class="pat-name">${esc(p.patient_name)}</span>
+      ${latestInd ? `<span class="pat-ind">${esc(latestInd)}</span>` : ""}
       <span class="pat-phone">${esc(p.phone || "")}</span>
       <span class="pat-tags">${tags}</span>
       <span class="pat-count">${p.count} 次随访 · 最近 ${esc(p.latest || "—")}</span>
