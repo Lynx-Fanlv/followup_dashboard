@@ -488,17 +488,39 @@ function normHeader(h) {
 // —— 「自定义随访内容」压缩 JSON 列 ——
 // 单元格形如：[{"name":"本次随访概述","code":"","value":"要去复诊开药了"}, ...]
 // 题目名(name) 命中下列关键字时，把回答(value)原文归入对应目标字段。
-// 仅覆盖用户确认的两个目标字段：备注、停药/减量根本原因（数组顺序即匹配优先级）。
+// 数组顺序即字段优先级（先命中者胜）。目标字段：
+//   remarks             → 备注
+//   stop_reduce_reason  → 停药、减量根本原因
+//   dosage              → 用法用量（只用于展示/导出，不参与用药状态判定）
 const CUSTOM_FOLLOWUP_RULES = [
   ["remarks", [
-    "患者反馈", "反馈内容", "随访概述", "随访汇总", "情况备注", "备注",
-    "最大的顾虑", "顾虑", "希望得到哪些方面", "需求",
+    // 反馈 / 记录 / 诉求类
+    "患者反馈", "反馈内容", "反馈", "问题", "其他信息", "感兴趣",
+    // 概述 / 汇总 / 备注类
+    "随访概述", "随访汇总", "汇总", "情况备注", "备注",
+    // 意见 / 需求类（含「医生建议…」，按用户确认一律归入备注）
+    "建议", "最大的顾虑", "顾虑", "希望得到哪些方面", "需求",
   ]],
   ["stop_reduce_reason", [
-    "脱落原因", "未复购原因", "当期未复购", "停药原因", "减量原因",
-    "停止用药", "推迟用药", "停减量",
+    "脱落原因", "脱落", "未复购原因", "未复购", "当期未复购", "未购药",
+    "停药原因", "停药", "减量原因", "减量", "停减量",
+    "停止用药", "未正常用药", "未按计划", "延迟用药", "推迟用药", "根本原因",
   ]],
+  ["dosage", ["用法用量", "用量", "剂量"]],
 ];
+
+// 整题跳过：yes/no 问句。答案只有「是/否」，进备注或根本原因都无信息量
+//（如「是否确认脱落」「4.您是否存在漏用、擅自停用类克的情况？」）。
+const RE_CUSTOM_SKIP_NAME = /是否/;
+// 「用法用量」额外跳过：知晓度 / 检测评估类问句——问的是「了不了解」「做没做检查」，
+// 例如「剂量变化当日，患者是否做了血生化检测？」「您是否清楚每日服药次数和剂量？」。
+const RE_DOSAGE_SKIP_NAME = /检测|评估|了解|清楚|知悉/;
+// 低信息量取值：单纯肯定/否定、未告知等，不作为备注/根本原因正文
+const RE_LOWINFO_VALUE = /^(是|否|有|没有|无|暂无|不清楚|不知道|未告知|不适用|不涉及|无异常|正常|n\/?a)$/i;
+
+function isLowInfoValue(v) {
+  return RE_LOWINFO_VALUE.test(String(v == null ? "" : v).trim());
+}
 
 // 反转义 JSON 字符串中被转义的引号/换行（正则兜底路径使用）
 function _unescapeJsonStr(s) {
@@ -538,19 +560,21 @@ function parseCustomFollowup(raw) {
 }
 
 // 把「自定义随访内容」的问答按题目关键字归入目标字段。
-// 返回 { remarks: [...], stop_reduce_reason: [...] }，值均为回答原文（不含题目前缀）。
+// 返回 { remarks, stop_reduce_reason, dosage }，值均为回答原文（不含题目前缀）。
 function customExtract(raw) {
-  const out = { remarks: [], stop_reduce_reason: [] };
+  const out = { remarks: [], stop_reduce_reason: [], dosage: [] };
   const items = parseCustomFollowup(raw);
   if (!items.length) return out;
   for (const it of items) {
-    if (isPlaceholder(it.value)) continue;
+    if (RE_CUSTOM_SKIP_NAME.test(it.name)) continue;   // yes/no 问句整题跳过
+    if (isPlaceholder(it.value)) continue;             // 无 / 不详 等占位值
+    if (isLowInfoValue(it.value)) continue;            // 是 / 否 / 未告知 等无信息量取值
     for (const [field, kws] of CUSTOM_FOLLOWUP_RULES) {
       if (!out[field]) continue;
-      if (kws.some(kw => it.name.includes(kw))) {
-        if (!out[field].includes(it.value)) out[field].push(it.value);
-        break;
-      }
+      if (!kws.some(kw => it.name.includes(kw))) continue;
+      if (field === "dosage" && RE_DOSAGE_SKIP_NAME.test(it.name)) break; // 知晓度/检测类不算用法用量
+      if (!out[field].includes(it.value)) out[field].push(it.value);
+      break;
     }
   }
   return out;
@@ -862,7 +886,7 @@ if (typeof window !== "undefined") {
   window.Mapping = { CANONICAL_FIELDS, STATUS_TAXONOMY, SUBTYPE_TAXONOMY, SIGNATURES,
     KEYWORD_RULES, KEYWORD_RULES_MULTI, normHeader, _cell, _gtext,
     isPlaceholder, isStopOption, isStopText,
-    CUSTOM_FOLLOWUP_RULES, parseCustomFollowup, customExtract,
+    CUSTOM_FOLLOWUP_RULES, parseCustomFollowup, customExtract, isLowInfoValue,
     deriveStatus, deriveIrregularitySubtype, _rawStatusText,
     PROJECT_FIELDS, projectFields };
 }
@@ -1106,8 +1130,11 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
     rec.irregularity_subtype = sub;
     // 小卡「专项原文」：按 source_type 收集本项目相关的真实列名+原值（不读随访小结）
     rec.project_fields = M.projectFields(sourceType, row, colmap, cols);
-    // 「用法用量」原文（如「确认当前泽布替尼的用法用量」），供明细表/导出展示
-    rec.dosage_raw = M._gtext(row, colmap, "_dosage") || null;
+    // 「用法用量」原文（如「确认当前泽布替尼的用法用量」），供明细表/导出展示。
+    // 主表专列优先；为空时用「自定义随访内容」中含「剂量/用量」的问答补空。
+    // 注意：该字段仅用于展示，不参与用药状态判定。
+    const dMain = M._gtext(row, colmap, "_dosage") || null;
+    rec.dosage_raw = dMain || (custom && custom.dosage.length ? custom.dosage.join("\n") : null);
     records.push(rec);
   }
   return records;

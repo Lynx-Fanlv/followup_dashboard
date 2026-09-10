@@ -235,8 +235,11 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
     rec.irregularity_subtype = sub;
     // 小卡「专项原文」：按 source_type 收集本项目相关的真实列名+原值（不读随访小结）
     rec.project_fields = M.projectFields(sourceType, row, colmap, cols);
-    // 「用法用量」原文（如「确认当前泽布替尼的用法用量」），供明细表/导出展示
-    rec.dosage_raw = M._gtext(row, colmap, "_dosage") || null;
+    // 「用法用量」原文（如「确认当前泽布替尼的用法用量」），供明细表/导出展示。
+    // 主表专列优先；为空时用「自定义随访内容」中含「剂量/用量」的问答补空。
+    // 注意：该字段仅用于展示，不参与用药状态判定。
+    const dMain = M._gtext(row, colmap, "_dosage") || null;
+    rec.dosage_raw = dMain || (custom && custom.dosage.length ? custom.dosage.join("\n") : null);
     records.push(rec);
   }
   return records;
