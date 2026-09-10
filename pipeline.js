@@ -183,12 +183,22 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
         rec[field] = cellStr(row[col]);
       }
     }
-    // 备注：患者反馈/顾虑/备注等专有字段优先；仅当这些字段全空（或全是占位值）时，
-    // 才回退取「随访小结」列内容——小结是结构化模板文字，不作备注首选。
+    // 「自定义随访内容」压缩 JSON 列（题目 name + 回答 value）：
+    // 主表对应列全空时，用其中的「患者反馈/本次随访概述/此次随访汇总/情况备注…」
+    // 补入备注，「脱落原因/未复购原因/当期未复购…」补入停药减量根本原因。
+    let custom = null;
+    for (const c of asList(colmap._custom_followup)) {
+      if (c == null) continue;
+      const craw = cellStr(row[c]);
+      if (craw) { custom = M.customExtract(craw); break; }
+    }
+    // 备注：患者反馈/顾虑/备注等专有字段优先；其次「自定义随访内容」中的反馈类问答；
+    // 仅当两者都空（或全是占位值）时，才回退取「随访小结」列内容——小结是结构化模板文字。
     let rcols = asList(colmap.remarks).filter(c => c != null);
     const parts = [];
     for (const c of rcols) { const tv = cellStr(row[c]); if (tv && !M.isPlaceholder(tv)) parts.push(tv); }
     let remarks = parts.length ? parts.join("\n") : null;
+    if (!remarks && custom && custom.remarks.length) remarks = custom.remarks.join("\n");
     if (!remarks && colmap.summary != null) {
       const sCol = Array.isArray(colmap.summary) ? colmap.summary[0] : colmap.summary;
       const sv = sCol != null ? cellStr(row[sCol]) : null;
@@ -210,10 +220,12 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
       const tv = cellStr(row[c]);
       if (tv && !seen.has(tv)) { seen.add(tv); rparts.push(tv); }
     }
-    // 剔除「无/不详/未知」等占位值；若全被剔除则回退保留原值，避免丢失原文
+    // 剔除「无/不详/未知」等占位值；若全被剔除则回退保留原值，避免丢失原文；
+    // 若主表各列均无有效值，再用「自定义随访内容」中的原因类问答补空。
     const rMeaningful = rparts.filter(p => !M.isPlaceholder(p));
-    const rFinal = rMeaningful.length ? rMeaningful : rparts;
-    rec.stop_reduce_reason = rFinal.length ? rFinal.join("\n") : null;
+    const rBest = rMeaningful.length ? rMeaningful
+                : (custom && custom.stop_reduce_reason.length ? custom.stop_reduce_reason : rparts);
+    rec.stop_reduce_reason = rBest.length ? rBest.join("\n") : null;
     // 用药状态 + 不规范下钻
     const status = M.deriveStatus(sourceType, row, colmap);
     rec.medication_status = status;
