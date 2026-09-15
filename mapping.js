@@ -232,16 +232,40 @@ function isStopText(v) {
   return /停用|停药|停[／/]换|换药|转药|换方案|改方案|转渠道/.test(v);
 }
 
+// 「用药周期状态」取值 → 状态（enrollment 两层判定的第二层；独立成函数便于单测与复用）。
+// 【顺序很关键】先判脱落，再判不规范，最后才判规范——
+// 「持续用药中--流失」同时含「持续用药」与「流失」，必须被流失规则先拦下。
+// 无法从取值本身判断时返回 null，交回调用方走后续兜底。
+function classifyPeriodStatus(v) {
+  const s = String(v == null ? "" : v).trim();
+  if (!s) return null;
+  // 「暂停用药」必须先判：字面上含「停用」，否则会被下面的脱落规则误吞。
+  // 按用户口径，暂停 = 不规范用药（与 routine 分支「延迟/暂停/推迟 → 不规范」一致）。
+  if (/暂停/.test(s)) return "不规范用药";
+  if (/停药|停用|停止|脱落|流失|随访失败|转渠道|转院|院内购药|换药|转药|去世|死亡/.test(s)) return "脱落停药";
+  if (/减量|减药|推迟|延迟|提前|改变用药(间隔|剂量|时间)|拉长|未规范|不依从|不规律|未按时|未复购/.test(s)) return "不规范用药";
+  if (/按计划|持续用药|正常用药/.test(s)) return "规范用药";
+  return null;
+}
+
 function deriveStatus(sourceType, row, colmap) {
   const g = f => _gtext(row, colmap, f);
   const has = f => Boolean(g(f));
 
   if (sourceType === "enrollment") {
     const v = g("_status_period");
+    // 第一层：精确白名单。已知枚举值最可靠，优先判。
     if (v === "按计划持续用药") return "规范用药";
     if (v === "延迟用药" || v === "推迟购药" || v === "未按计划持续用药-不依从") return "不规范用药";
     if (v === "停药----脱落" || v === "随访失败") return "脱落停药";
-    // 兜底：_status_period 缺失时按根因文本判别
+    // 第二层：按「用药周期状态」取值本身做关键词判定（两层判定）。
+    // 原因：该列实测有 20+ 种取值，且随模板演进还会新增；只做精确白名单时，
+    // 未收录的取值会直接掉到第三层，而第三层只读「停药/减量根本原因」文本，
+    // 于是「推迟用药 / 减量用药 / 未规范用药（拉长用药间隔）/ 持续用药中--流失」
+    // 这类本身已表明状态的取值被误判成「其他」（实测 602 条）。
+    const byKw = classifyPeriodStatus(v);
+    if (byKw) return byKw;
+    // 第三层：取值本身无信息（如"其它""其他原因"）时，按根因文本 / 依从性列推断
     const reason = g("stop_reduce_reason") || "";
     if (isStopText(reason) || /流失|拒接|未拨通|拒绝随访|脱落/.test(reason)) return "脱落停药";
     if (/减量|延迟|推迟|不依从|不规律|减药/.test(reason)) return "不规范用药";
@@ -560,6 +584,6 @@ if (typeof window !== "undefined") {
     CUSTOM_FOLLOWUP_RULES, parseCustomFollowup, customExtract, isLowInfoValue,
     REASON_BUCKETS, REASON_BUCKET_OTHER, REASON_BUCKET_SKIP, REASON_BUCKET_SHORT,
     stripReasonPrefix, classifyReason,
-    deriveStatus, deriveIrregularitySubtype, _rawStatusText,
+    deriveStatus, deriveIrregularitySubtype, _rawStatusText, classifyPeriodStatus,
     PROJECT_FIELDS, projectFields };
 }
