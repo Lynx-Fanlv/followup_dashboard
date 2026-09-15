@@ -18,7 +18,7 @@ const EXPORT_COLS = [
   ["executor", "执行人"],
   ["medication_status_raw", "用药状态"],
   ["irregularity_subtype", "不规范类型"],
-  ["stop_reduce_reason", "停药/减量根本原因"],
+  ["stop_reduce_reason", "停药/减量根本原因"], ["reason_bucket", "根本原因分类"],
   ["dosage_raw", "用法用量"],
   ["remarks", "备注"],
 ];
@@ -35,9 +35,11 @@ const DETAIL = [["patient_name", "患者"], ["phone", "电话"], ["gender", "性
   ["followup_time", "随访时间"], ["drug_product", "药品"], ["indication", "适应症"],
   ["pharmacy", "药店"], ["executor", "执行人"], ["medication_status_raw", "用药状态"],
   ["irregularity_subtype", "不规范类型"],
-  ["stop_reduce_reason", "停药/减量根本原因"], ["dosage_raw", "用法用量"], ["remarks", "备注"]];
+  ["stop_reduce_reason", "停药/减量根本原因"], ["reason_bucket", "根本原因分类"],
+  ["dosage_raw", "用法用量"], ["remarks", "备注"]];
 
-const state = { status: new Set(), subtype: null, drugs: new Set(), pharmacies: new Set(), executors: new Set(), start: null, end: null,
+const state = { status: new Set(), subtype: null, drugs: new Set(), pharmacies: new Set(), executors: new Set(),
+  reasons: new Set(), start: null, end: null,
   q: "", view: "detail", page: 1, pageSize: 50, hiddenCols: new Set(),
   plainName: false, plainPhone: false };
 let CURRENT = { summary: null, global: null };
@@ -84,6 +86,31 @@ function countBy(arr, keyFn) {
   for (const x of arr) { const k = keyFn(x); m[k] = (m[k] || 0) + 1; }
   return m;
 }
+
+/* ============ 「停药/减量根本原因」统计口径 ============ */
+// 口径（用户确认）：只统计「任务状态＝已完成」的记录；并把误入原因列的正常用药描述
+//（reason_bucket = 非停减…）从分子分母中剔除，避免污染占比。
+const REASON_SKIP = "非停减（仍在用药／已购药）";
+function isDoneTask(r) { return /已完成/.test(String(r.task_status || "")); }
+function isReasonCounted(r) {
+  return isDoneTask(r) && r.reason_bucket && r.reason_bucket !== REASON_SKIP;
+}
+// 返回 { by_reason, meta }：meta 用于在卡片脚注里交代口径，便于核对
+function reasonStats(records) {
+  const done = records.filter(isDoneTask);
+  const withReason = done.filter(r => r.reason_bucket);
+  const counted = done.filter(r => r.reason_bucket && r.reason_bucket !== REASON_SKIP);
+  return {
+    by_reason: countBy(counted, r => r.reason_bucket),
+    meta: {
+      all: records.length,
+      done: done.length,
+      withReason: withReason.length,
+      skipped: withReason.filter(r => r.reason_bucket === REASON_SKIP).length,
+      counted: counted.length,
+    },
+  };
+}
 function build_summary(records) {
   const months = records.map(r => _month(r.followup_time)).filter(Boolean).sort();
   const by_month = {};
@@ -91,6 +118,7 @@ function build_summary(records) {
   const days = records.map(r => _extract_date(r.followup_time)).filter(Boolean).sort();
   const by_day = {};
   for (const d of days) by_day[d] = (by_day[d] || 0) + 1;
+  const rs = reasonStats(records);
   return {
     total: records.length,
     by_status: countBy(records, r => r.medication_status),
@@ -100,16 +128,18 @@ function build_summary(records) {
     by_drug: countBy(records, r => r.drug_product || "未知"),
     by_pharmacy: countBy(records, r => r.pharmacy || "未知"),
     by_executor: countBy(records, r => r.executor || "未知"),
+    by_reason: rs.by_reason,
+    reason_meta: rs.meta,
     by_month,
     by_day,
     taxonomy: STATUS_TAXONOMY,
     subtypes: SUBTYPE_TAXONOMY,
   };
 }
-// kw: {status:[]|null, subtype, src, drug:[]|null, pharmacy:[]|null, start, end, q}
+// kw: {status:[]|null, subtype, src, drug:[]|null, pharmacy:[]|null, reason:[]|null, start, end, q}
 function filter_records(records, kw) {
   let recs = records;
-  const { status, subtype, src, drug, pharmacy, executor, start, end, q } = kw;
+  const { status, subtype, src, drug, pharmacy, executor, reason, start, end, q } = kw;
   if (status && status.length) {
     const sset = new Set(status);
     recs = recs.filter(r => sset.has(r.medication_status));
@@ -127,6 +157,11 @@ function filter_records(records, kw) {
   if (executor && executor.length) {
     const eset = new Set(executor);
     recs = recs.filter(r => eset.has(r.executor || "未知"));
+  }
+  // 根本原因：口径同为「已完成任务」，与图表/脚注保持一致
+  if (reason && reason.length) {
+    const rset = new Set(reason);
+    recs = recs.filter(r => isDoneTask(r) && rset.has(r.reason_bucket || ""));
   }
   if (q) {
     const ql = q.trim().toLowerCase();
@@ -162,6 +197,7 @@ function _facet(records, kw, exclude) {
   else if (exclude === "drug") k.drug = null;
   else if (exclude === "pharmacy") k.pharmacy = null;
   else if (exclude === "executor") k.executor = null;
+  else if (exclude === "reason") k.reason = null;
   else if (exclude === "time") { k.start = null; k.end = null; }
   return filter_records(records, k);
 }
@@ -173,6 +209,7 @@ function currentKw() {
     drug: state.drugs.size ? [...state.drugs] : null,
     pharmacy: state.pharmacies.size ? [...state.pharmacies] : null,
     executor: state.executors.size ? [...state.executors] : null,
+    reason: state.reasons.size ? [...state.reasons] : null,
     start: state.start || null,
     end: state.end || null,
     q: state.q || null,
@@ -187,6 +224,10 @@ function summaryLocal(kw) {
   base.by_drug = build_summary(_facet(STORE.records, kw, "drug")).by_drug;
   base.by_pharmacy = build_summary(_facet(STORE.records, kw, "pharmacy")).by_pharmacy;
   base.by_executor = build_summary(_facet(STORE.records, kw, "executor")).by_executor;
+  // 根本原因：排除自身筛选，使各分桶计数互相可见（与其它维度一致）
+  const rf = build_summary(_facet(STORE.records, kw, "reason"));
+  base.by_reason = rf.by_reason;
+  base.reason_meta = rf.reason_meta;
   base.by_month = build_summary(_facet(STORE.records, kw, "time")).by_month;
   base.by_day = build_summary(_facet(STORE.records, kw, "time")).by_day;
   base.by_task_status = countBy(STORE.records, r => r.task_status || "未知");
@@ -262,6 +303,7 @@ function renderSummary(d) {
   buildMs("drugMs", d.by_drug, state.drugs, "药品");
   buildMs("pharmMs", d.by_pharmacy, state.pharmacies, "药店");
   buildMs("execMs", d.by_executor, state.executors, "执行人");
+  buildMs("reasonMs", d.by_reason, state.reasons, "根本原因");
   renderSubtypeBar();
   updateFilterInfo();
 }
@@ -334,6 +376,7 @@ function renderCharts(d) {
   }
   $("#trendChart").innerHTML = lineChart(useDay ? bd : bm, useDay ? "day" : "month");
   bindTrendHover();
+  renderReasonChart(d);
 }
 
 // 趋势图悬停：鼠标移入整张图时，自动吸附到最近的月份点并显示数量
@@ -407,6 +450,52 @@ function barChart(data) {
   }).join("");
   return `<div class="bars">${rows}</div>`;
 }
+
+// 「停药/减量根本原因」分布：横向条形图，点击条形即加入/取消筛选（下钻）
+function reasonBarChart(byReason) {
+  const entries = Object.entries(byReason || {}).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) return '<div class="chart-empty">当前筛选下暂无「已完成任务」的根本原因数据</div>';
+  const max = Math.max(...entries.map(e => e[1]));
+  const total = entries.reduce((a, [, v]) => a + v, 0);
+  return `<div class="bars bars-lg">` + entries.map(([k, v]) => {
+    const w = Math.max(2, Math.round(v / max * 100));
+    const pct = (v / total * 100).toFixed(1);
+    const active = state.reasons.has(k) ? " active" : "";
+    return `<div class="bar-row clickable${active}" data-reason="${esc(k)}" title="点击筛选「${esc(k)}」，再次点击取消">
+      <span class="bar-label" title="${esc(k)}">${esc(k)}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${w}%"></span></span>
+      <span class="bar-val">${v}</span>
+      <span class="bar-pct">${pct}%</span></div>`;
+  }).join("") + `</div>`;
+}
+function renderReasonChart(d) {
+  const el = $("#reasonChart");
+  if (!el) return;
+  el.innerHTML = reasonBarChart(d.by_reason);
+  const m = d.reason_meta || {};
+  const sub = $("#reasonSub");
+  if (sub) {
+    sub.textContent = m.counted
+      ? `基于当前筛选 · 已完成任务 ${m.done} 条，其中 ${m.counted} 条有停减量原因 · 点击条形可下钻`
+      : "基于当前筛选 · 暂无「已完成任务」的停减量原因";
+  }
+  const foot = $("#reasonFoot");
+  if (foot) {
+    const bits = [`当前筛选 ${m.all || 0} 条`, `已完成 ${m.done || 0} 条`, `有原因 ${m.withReason || 0} 条`];
+    if (m.skipped) bits.push(`其中 ${m.skipped} 条为「仍在用药／已购药」等非停减描述，未计入`);
+    const pending = (m.withReason || 0) - (m.counted || 0) - (m.skipped || 0);
+    if (pending > 0) bits.push(`${pending} 条有原因但任务状态非「已完成」，未计入`);
+    foot.textContent = "口径：" + bits.join(" · ");
+  }
+  el.querySelectorAll(".bar-row.clickable").forEach(row => {
+    row.onclick = () => {
+      const k = row.dataset.reason;
+      if (state.reasons.has(k)) state.reasons.delete(k); else state.reasons.add(k);
+      state.page = 1;
+      refresh();
+    };
+  });
+}
 function lineChart(data, unit) {
   const entries = Object.entries(data);
   if (!entries.length) return '<div class="chart-empty">暂无数据</div>';
@@ -465,6 +554,7 @@ function updateFilterInfo() {
   if (state.drugs.size) parts.push("药品=" + state.drugs.size + "项");
   if (state.pharmacies.size) parts.push("药店=" + state.pharmacies.size + "项");
   if (state.executors.size) parts.push("执行人=" + state.executors.size + "项");
+  if (state.reasons.size) parts.push("根本原因=" + state.reasons.size + "项");
   if (state.start || state.end) parts.push("时间=" + ((state.start || "…") + "~" + (state.end || "…")));
   $("#filterInfo").textContent = parts.length ? ("筛选：" + parts.join(" · ")) : "";
 }
@@ -722,7 +812,7 @@ $("#clearAllBtn").onclick = () => {
 /* ============ 筛选交互 ============ */
 $("#clearBtn").onclick = () => {
   state.status.clear(); state.subtype = null;
-  state.drugs.clear(); state.pharmacies.clear(); state.executors.clear();
+  state.drugs.clear(); state.pharmacies.clear(); state.executors.clear(); state.reasons.clear();
   state.start = state.end = null; state.q = ""; state.page = 1;
   $("#searchInput").value = ""; $("#startDate").value = ""; $("#endDate").value = "";
   refresh();
@@ -762,6 +852,7 @@ function togglePanel(panel) {
 $("#drugMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#drugMsPanel")); };
 $("#pharmMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#pharmMsPanel")); };
 $("#execMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#execMsPanel")); };
+$("#reasonMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#reasonMsPanel")); };
 document.addEventListener("click", e => {
   if (e.target.closest(".ms") || e.target.closest("#colPanel") || e.target.closest("#colBtn")) return;
   closeAllPopovers();

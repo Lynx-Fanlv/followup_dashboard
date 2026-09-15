@@ -465,6 +465,50 @@ function _rawStatusText(sourceType, row, colmap) {
   return null;
 }
 
+// —— 「停药/减量根本原因」归一化分桶 ——
+// 原因列是自由文本，实测 661 种去重措辞（其中 48% 只出现 1 次），直接按原文计数会是一片长尾。
+// 故按关键词归入固定分桶，供「根本原因分布」图表与筛选使用；原文仍完整保留在 stop_reduce_reason。
+// 【数组顺序 = 优先级】：先命中先归类，越具体越靠前。
+// 调整口径只需改这一个常量。
+const REASON_BUCKETS = [
+  ["联系失败／失访", /未拨通|挂断|空号|停机|关机|未接|拒接|拒绝随访|联系不上|失联|打不通|不是患者|不认识患者|联系人不清|联系未果|无法联系|联系失败|未接通|电话拦截|手机设置/],
+  ["死亡", /去世|死亡|过世|逝世/],
+  ["疾病进展／耐药", /疾病进展|病情进展|进展|耐药|复发|恶化/],
+  ["不良反应／不耐受", /不良反应|副作用|不耐受|身体机能不适|身体不适|骨髓抑制|肝功|化疗|放疗|恶心|呕吐|皮疹|疼痛|贫血|不适|过敏|发热|乏力|睡眠/],
+  ["经济／费用", /经济|费用|负担|医保|自费|支付|慈善|援助|赠药/],
+  ["购药渠道／便利性", /购药不方便|购买不方便|不方便|转[^，,。；;]{0,12}(购药|医院|药房|药店|店|堂)|更换药房|异地|渠道|药店|药房|其他门店|本地门店|户籍地|竞品|竟争|输注不便|床位|约[^，,。；;]{0,3}床|到床|未约上|距离|取药|配送|离家|院内|住院|医院购药/],
+  ["疗效不佳", /疗效(不佳|不好|差|不明显)|效果不佳|效果不好|效果不明显|无明显效果|没有明显效果|没效果|未见好转|愿继续治疗|不想继续/],
+  // 方源（医嘱 / 自主）优先于「为什么」类，与「不规范类型」的口径保持一致，便于交叉核对
+  ["医嘱调整（停药／减量／推迟）", /遵医嘱|医生明确|医嘱|医生建议|医生调整|医生喊|医生要求|医生让/],
+  ["患者自主调整（停药／减量／推迟）", /自行|自主|自己决定|自己选择|观念不强|依从性差|自述|自认|本人要求|自愿/],
+  ["疾病稳定／疗程结束", /病情稳定|疾病稳定|稳定|症状减轻|好转|疗程结束|结束疗程|已结束|无需继续|不需要继续|治愈|痊愈/],
+  ["未到用药周期／延迟购药", /未及时购药|尚未来得及|未到用药时间|非实际用药周期|未到周期|未到时间|未通知用药|超过用药周期|周期未到|没时间|未开药|未购药|延迟|推迟用药/],
+  ["已减量／已停药（未注明方源）", /已经减药|已经停药|已停药|已减量|减量用药|停药|暂停用药|停止用药|减药|换药|更换方案|换方/],
+  // 下面这桶不是「停减量原因」，而是误入该列的正常用药描述；统计时单独剔除，避免污染占比
+  ["非停减（仍在用药／已购药）", /持续用药|正常用药|正在用药|仍在用药|已购药|已开药|复查|下次用药|治疗中|用药中/],
+];
+const REASON_BUCKET_OTHER = "其他／未采集到原因";
+const REASON_BUCKET_SKIP = "非停减（仍在用药／已购药）";   // 不计入分母
+
+// 表单模板前缀，如「其他（请注明：______）:实际内容」「其他原因，记录具体原因:身体原因」
+// 只剥这一层，避免破坏「遵医嘱：改变用药时间间隔」这类前缀本身带语义的取值。
+const RE_REASON_FORM_PREFIX = /^(?:其他\s*(?:原因)?\s*[（(][^）)]{0,30}[）)]|其他\s*原因[，,、]?\s*(?:需门店自行备注原因|记录具体原因|记录原因|请注明|填写)?|其他\s*原因|其他)\s*[:：]\s*/;
+function stripReasonPrefix(v) {
+  const s = String(v == null ? "" : v).trim();
+  const m = s.match(RE_REASON_FORM_PREFIX);
+  if (!m) return s;
+  const rest = s.slice(m[0].length).trim();
+  return rest || s;   // 剥完为空则保留原文，不丢信息
+}
+
+// 把一条原因文本归入分桶；无法归类返回 REASON_BUCKET_OTHER。
+function classifyReason(text) {
+  const s = stripReasonPrefix(text);
+  if (!s) return null;
+  for (const [name, re] of REASON_BUCKETS) if (re.test(s)) return name;
+  return REASON_BUCKET_OTHER;
+}
+
 // 小卡「专项原文」：按随访项目返回 [{label, value}]，label 用真实列名、value 用原单元格值。
 // row 为索引化对象（row[idx] = 清洗后字符串），colmap 存列索引，headers 为原始表头数组。
 function projectFields(sourceType, row, colmap, headers) {
@@ -495,6 +539,8 @@ if (typeof window !== "undefined") {
     KEYWORD_RULES, KEYWORD_RULES_MULTI, normHeader, _cell, _gtext,
     isPlaceholder, isStopOption, isStopText,
     CUSTOM_FOLLOWUP_RULES, parseCustomFollowup, customExtract, isLowInfoValue,
+    REASON_BUCKETS, REASON_BUCKET_OTHER, REASON_BUCKET_SKIP,
+    stripReasonPrefix, classifyReason,
     deriveStatus, deriveIrregularitySubtype, _rawStatusText,
     PROJECT_FIELDS, projectFields };
 }

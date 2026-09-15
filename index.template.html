@@ -106,6 +106,22 @@
   .bar-track{flex:1;background:var(--gray-bg);border-radius:5px;height:14px;overflow:hidden}
   .bar-fill{display:block;height:100%;background:var(--brand);border-radius:5px}
   .bar-val{width:38px;text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
+  /* 「停药/减量根本原因」整行宽卡 + 可点击条形 */
+  .chart-row2{margin:12px 0 4px}
+  .bars-lg{gap:6px}
+  .bars-lg .bar-row{display:grid;grid-template-columns:minmax(140px,220px) minmax(0,1fr) 52px 48px;
+    gap:10px;padding:2px 6px;border-radius:6px}
+  .bars-lg .bar-label{width:auto;color:var(--text);font-size:12.5px}
+  .bars-lg .bar-track{height:13px}
+  .bars-lg .bar-val{width:auto;text-align:right;font-weight:600}
+  .bar-pct{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+  .bar-row.clickable{cursor:pointer}
+  .bar-row.clickable:hover{background:#f4f7ff}
+  .bar-row.clickable:hover .bar-fill{background:#2f4fc7}
+  .bar-row.active{background:var(--brand-soft)}
+  .bar-row.active .bar-label{color:var(--brand);font-weight:600}
+  .bar-row.active .bar-fill{background:var(--brand);box-shadow:inset 0 0 0 1px #fff}
+  .chart-foot{font-size:11.5px;color:var(--muted);margin-top:9px;padding-top:8px;border-top:1px solid var(--line);line-height:1.6}
   /* 统一筛选栏 */
   .filterbar{position:sticky;top:0;z-index:8;display:flex;flex-wrap:wrap;gap:10px;align-items:center;
     background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0 4px;
@@ -292,6 +308,15 @@
       <div class="chart-card"><div class="chart-title">药品记录数 TOP5</div><div id="drugChart"></div></div>
       <div class="chart-card"><div class="chart-title">随访时间趋势</div><div id="trendChart"></div></div>
     </div>
+    <!-- 停药/减量根本原因分布（整行，条形可点击下钻） -->
+    <div class="charts chart-row2">
+      <div class="chart-card">
+        <div class="chart-title">停药／减量根本原因</div>
+        <div class="chart-sub" id="reasonSub"></div>
+        <div id="reasonChart"></div>
+        <div class="chart-foot" id="reasonFoot"></div>
+      </div>
+    </div>
 
     <!-- 筛选区 -->
     <div class="filter-section">
@@ -324,6 +349,13 @@
         <div class="ms-panel hidden" id="execMsPanel">
           <div class="ms-tools"><span class="ms-count" id="execMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act" data-act="none">清空</a></div>
           <div class="ms-list" id="execMsList"></div>
+        </div>
+      </div>
+      <div class="ms" id="reasonMs">
+        <button class="ms-btn" type="button" id="reasonMsBtn" title="仅统计任务状态为「已完成」的记录">根本原因：全部 <span class="ms-caret">▾</span></button>
+        <div class="ms-panel hidden" id="reasonMsPanel">
+          <div class="ms-tools"><span class="ms-count" id="reasonMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act" data-act="none">清空</a></div>
+          <div class="ms-list" id="reasonMsList"></div>
         </div>
       </div>
       <span class="fb-date"><label>时间</label>
