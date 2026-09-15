@@ -12,14 +12,17 @@
     --bad:#e03131; --bad-bg:#fdecec;
     --warn:#e8590c; --warn-bg:#fff1e8;
     --gray:#868e96; --gray-bg:#f1f3f5;
+    /* 内容区基准宽度：页头与主体共用，保证两者左右对齐 */
+    --wrap:1560px; --pad-x:24px;
   }
   *{box-sizing:border-box}
   body{margin:0;font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
        background:var(--bg);color:var(--text);font-size:14px;line-height:1.6}
-  header{padding:18px 24px;background:var(--panel);border-bottom:1px solid var(--line)}
+  header{padding:18px 0;background:var(--panel);border-bottom:1px solid var(--line)}
+  .head-inner{max-width:var(--wrap);margin:0 auto;padding:0 var(--pad-x)}
   header h1{margin:0;font-size:18px;font-weight:600}
   header p{margin:4px 0 0;color:var(--muted);font-size:13px}
-  .wrap{max-width:1180px;margin:0 auto;padding:20px 24px 60px}
+  .wrap{max-width:var(--wrap);margin:0 auto;padding:20px var(--pad-x) 60px}
   .upload{border:2px dashed var(--line);border-radius:12px;background:var(--panel);
          padding:22px;text-align:center;transition:.15s}
   .upload.drag{border-color:var(--brand);background:var(--brand-soft)}
@@ -92,6 +95,9 @@
   .g-card.total .g-num,.g-card.total .g-cap{color:#fff}
   /* 图表 */
   .charts{display:grid;grid-template-columns:1fr 1.2fr 1.3fr;gap:12px;margin:12px 0 4px}
+  /* 图表随卡片宽度等比放大：折线图不再被固定高度「信箱化」，宽屏下不留空档 */
+  #trendChart svg{width:100%;height:auto;min-height:140px}
+  #donutChart svg{width:132px;height:132px}
   .chart-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
   .chart-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px}
   .chart-sub{font-size:11px;color:var(--muted);margin:-4px 0 8px}
@@ -225,14 +231,14 @@
   .tag.脱落停药{background:var(--warn-bg);color:var(--warn)}
   .tag.其他{background:var(--gray-bg);color:var(--gray)}
   .tag.sub{background:var(--bad-bg);color:var(--bad)}
-  td.remarks{white-space:pre-wrap;max-width:340px;color:#374151}
-  .cell-clip{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-width:340px}
+  td.remarks{white-space:pre-wrap;max-width:460px;color:#374151}
+  .cell-clip{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-width:460px}
   .empty{padding:40px;text-align:center;color:var(--muted)}
   .pat-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin-bottom:8px;overflow:hidden}
   .pat-head{display:flex;align-items:center;gap:12px;padding:11px 16px;cursor:pointer;flex-wrap:wrap}
   .pat-head:hover{background:#f9fbff}
   .pat-name{font-weight:600;font-size:14px}
-  .pat-ind{font-size:12px;color:#3b5bdb;background:#edf2ff;border:1px solid #dbe4ff;border-radius:20px;padding:1px 9px;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+  .pat-ind{font-size:12px;color:#3b5bdb;background:#edf2ff;border:1px solid #dbe4ff;border-radius:20px;padding:1px 9px;white-space:nowrap;max-width:340px;overflow:hidden;text-overflow:ellipsis}
   .pat-phone{color:var(--muted);font-size:13px}
   .pat-tags{display:flex;gap:5px;flex-wrap:wrap}
   .pat-count{margin-left:auto;color:var(--muted);font-size:12px}
@@ -274,8 +280,10 @@
 </head>
 <body>
 <header>
+  <div class="head-inner">
   <h1>随访数据看板（纯本地版）</h1>
   <p>上传 Excel → 点「开始分析」→ 自动归一化并展示。所有解析与计算均在你的浏览器内完成，数据不会上传到任何服务器。</p>
+  </div>
 </header>
 
 <div class="wrap">
