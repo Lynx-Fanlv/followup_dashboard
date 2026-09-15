@@ -452,12 +452,14 @@ function barChart(data) {
 }
 
 // 「停药/减量根本原因」分布：横向条形图，点击条形即加入/取消筛选（下钻）
+// 排版：两列（按名次自上而下、先填左列），行高紧凑；桶很多时由 #reasonChart 的 max-height 出滚动条。
 function reasonBarChart(byReason) {
   const entries = Object.entries(byReason || {}).sort((a, b) => b[1] - a[1]);
   if (!entries.length) return '<div class="chart-empty">当前筛选下暂无「已完成任务」的根本原因数据</div>';
   const max = Math.max(...entries.map(e => e[1]));
   const total = entries.reduce((a, [, v]) => a + v, 0);
-  return `<div class="bars bars-lg">` + entries.map(([k, v]) => {
+  const rows = Math.ceil(entries.length / 2);
+  const body = entries.map(([k, v]) => {
     const w = Math.max(2, Math.round(v / max * 100));
     const pct = (v / total * 100).toFixed(1);
     const active = state.reasons.has(k) ? " active" : "";
@@ -466,7 +468,8 @@ function reasonBarChart(byReason) {
       <span class="bar-track"><span class="bar-fill" style="width:${w}%"></span></span>
       <span class="bar-val">${v}</span>
       <span class="bar-pct">${pct}%</span></div>`;
-  }).join("") + `</div>`;
+  }).join("");
+  return `<div class="bars bars-lg" style="grid-template-rows:repeat(${rows},auto)">${body}</div>`;
 }
 function renderReasonChart(d) {
   const el = $("#reasonChart");
@@ -481,11 +484,11 @@ function renderReasonChart(d) {
   }
   const foot = $("#reasonFoot");
   if (foot) {
-    const bits = [`当前筛选 ${m.all || 0} 条`, `已完成 ${m.done || 0} 条`, `有原因 ${m.withReason || 0} 条`];
-    if (m.skipped) bits.push(`其中 ${m.skipped} 条为「仍在用药／已购药」等非停减描述，未计入`);
+    const bits = [`当前筛选 ${m.all || 0}`, `已完成 ${m.done || 0}`, `有原因 ${m.withReason || 0}`];
+    if (m.skipped) bits.push(`剔除 ${m.skipped} 条非停减描述`);
     const pending = (m.withReason || 0) - (m.counted || 0) - (m.skipped || 0);
-    if (pending > 0) bits.push(`${pending} 条有原因但任务状态非「已完成」，未计入`);
-    foot.textContent = "口径：" + bits.join(" · ");
+    if (pending > 0) bits.push(`未计入 ${pending} 条（任务未完成）`);
+    foot.textContent = "口径（记录数）：" + bits.join(" · ");
   }
   el.querySelectorAll(".bar-row.clickable").forEach(row => {
     row.onclick = () => {

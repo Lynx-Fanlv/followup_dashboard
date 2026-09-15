@@ -106,22 +106,31 @@
   .bar-track{flex:1;background:var(--gray-bg);border-radius:5px;height:14px;overflow:hidden}
   .bar-fill{display:block;height:100%;background:var(--brand);border-radius:5px}
   .bar-val{width:38px;text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
-  /* 「停药/减量根本原因」整行宽卡 + 可点击条形 */
-  .chart-row2{margin:12px 0 4px}
-  .bars-lg{gap:6px}
-  .bars-lg .bar-row{display:grid;grid-template-columns:minmax(140px,220px) minmax(0,1fr) 52px 48px;
-    gap:10px;padding:2px 6px;border-radius:6px}
-  .bars-lg .bar-label{width:auto;color:var(--text);font-size:12.5px}
-  .bars-lg .bar-track{height:13px}
+  /* 「停药/减量根本原因」整行宽卡：两列排版 + 紧凑行高，超高时才滚动 */
+  .chart-row2{margin:10px 0 4px}
+  .chart-row2 .chart-card{padding:10px 14px}
+  .chart-row2 .chart-title{margin-bottom:2px}
+  .chart-row2 .chart-sub{margin:0 0 6px}
+  .bars-lg{display:grid;grid-auto-flow:column;gap:2px 20px;align-items:start}
+  .bars-lg .bar-row{display:grid;grid-template-columns:minmax(104px,164px) minmax(0,1fr) 44px 40px;
+    gap:8px;align-items:center;padding:1px 5px;border-radius:5px;font-size:12px;line-height:1.35}
+  .bars-lg .bar-label{width:auto;color:var(--text);font-size:12px}
+  .bars-lg .bar-track{height:10px}
   .bars-lg .bar-val{width:auto;text-align:right;font-weight:600}
-  .bar-pct{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+  .bar-pct{text-align:right;color:var(--muted);font-size:11.5px;font-variant-numeric:tabular-nums}
   .bar-row.clickable{cursor:pointer}
   .bar-row.clickable:hover{background:#f4f7ff}
   .bar-row.clickable:hover .bar-fill{background:#2f4fc7}
   .bar-row.active{background:var(--brand-soft)}
   .bar-row.active .bar-label{color:var(--brand);font-weight:600}
   .bar-row.active .bar-fill{background:var(--brand);box-shadow:inset 0 0 0 1px #fff}
-  .chart-foot{font-size:11.5px;color:var(--muted);margin-top:9px;padding-top:8px;border-top:1px solid var(--line);line-height:1.6}
+  /* 条形超出一屏高度时才出现滚动条（罕见，桶变多时兜底） */
+  #reasonChart{max-height:168px;overflow-y:auto;overscroll-behavior:contain}
+  .chart-foot{font-size:11px;color:var(--muted);margin-top:6px;padding-top:6px;border-top:1px solid var(--line);line-height:1.5}
+  /* 窄屏：退回单列，由 #reasonChart 的 max-height 负责滚动 */
+  @media (max-width: 860px){
+    .bars-lg{grid-template-rows:none !important;grid-auto-flow:row !important}
+  }
   /* 统一筛选栏 */
   .filterbar{position:sticky;top:0;z-index:8;display:flex;flex-wrap:wrap;gap:10px;align-items:center;
     background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0 4px;

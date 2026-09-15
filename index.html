@@ -106,22 +106,31 @@
   .bar-track{flex:1;background:var(--gray-bg);border-radius:5px;height:14px;overflow:hidden}
   .bar-fill{display:block;height:100%;background:var(--brand);border-radius:5px}
   .bar-val{width:38px;text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
-  /* 「停药/减量根本原因」整行宽卡 + 可点击条形 */
-  .chart-row2{margin:12px 0 4px}
-  .bars-lg{gap:6px}
-  .bars-lg .bar-row{display:grid;grid-template-columns:minmax(140px,220px) minmax(0,1fr) 52px 48px;
-    gap:10px;padding:2px 6px;border-radius:6px}
-  .bars-lg .bar-label{width:auto;color:var(--text);font-size:12.5px}
-  .bars-lg .bar-track{height:13px}
+  /* 「停药/减量根本原因」整行宽卡：两列排版 + 紧凑行高，超高时才滚动 */
+  .chart-row2{margin:10px 0 4px}
+  .chart-row2 .chart-card{padding:10px 14px}
+  .chart-row2 .chart-title{margin-bottom:2px}
+  .chart-row2 .chart-sub{margin:0 0 6px}
+  .bars-lg{display:grid;grid-auto-flow:column;gap:2px 20px;align-items:start}
+  .bars-lg .bar-row{display:grid;grid-template-columns:minmax(104px,164px) minmax(0,1fr) 44px 40px;
+    gap:8px;align-items:center;padding:1px 5px;border-radius:5px;font-size:12px;line-height:1.35}
+  .bars-lg .bar-label{width:auto;color:var(--text);font-size:12px}
+  .bars-lg .bar-track{height:10px}
   .bars-lg .bar-val{width:auto;text-align:right;font-weight:600}
-  .bar-pct{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+  .bar-pct{text-align:right;color:var(--muted);font-size:11.5px;font-variant-numeric:tabular-nums}
   .bar-row.clickable{cursor:pointer}
   .bar-row.clickable:hover{background:#f4f7ff}
   .bar-row.clickable:hover .bar-fill{background:#2f4fc7}
   .bar-row.active{background:var(--brand-soft)}
   .bar-row.active .bar-label{color:var(--brand);font-weight:600}
   .bar-row.active .bar-fill{background:var(--brand);box-shadow:inset 0 0 0 1px #fff}
-  .chart-foot{font-size:11.5px;color:var(--muted);margin-top:9px;padding-top:8px;border-top:1px solid var(--line);line-height:1.6}
+  /* 条形超出一屏高度时才出现滚动条（罕见，桶变多时兜底） */
+  #reasonChart{max-height:168px;overflow-y:auto;overscroll-behavior:contain}
+  .chart-foot{font-size:11px;color:var(--muted);margin-top:6px;padding-top:6px;border-top:1px solid var(--line);line-height:1.5}
+  /* 窄屏：退回单列，由 #reasonChart 的 max-height 负责滚动 */
+  @media (max-width: 860px){
+    .bars-lg{grid-template-rows:none !important;grid-auto-flow:row !important}
+  }
   /* 统一筛选栏 */
   .filterbar{position:sticky;top:0;z-index:8;display:flex;flex-wrap:wrap;gap:10px;align-items:center;
     background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:12px 0 4px;
@@ -1736,12 +1745,14 @@ function barChart(data) {
 }
 
 // 「停药/减量根本原因」分布：横向条形图，点击条形即加入/取消筛选（下钻）
+// 排版：两列（按名次自上而下、先填左列），行高紧凑；桶很多时由 #reasonChart 的 max-height 出滚动条。
 function reasonBarChart(byReason) {
   const entries = Object.entries(byReason || {}).sort((a, b) => b[1] - a[1]);
   if (!entries.length) return '<div class="chart-empty">当前筛选下暂无「已完成任务」的根本原因数据</div>';
   const max = Math.max(...entries.map(e => e[1]));
   const total = entries.reduce((a, [, v]) => a + v, 0);
-  return `<div class="bars bars-lg">` + entries.map(([k, v]) => {
+  const rows = Math.ceil(entries.length / 2);
+  const body = entries.map(([k, v]) => {
     const w = Math.max(2, Math.round(v / max * 100));
     const pct = (v / total * 100).toFixed(1);
     const active = state.reasons.has(k) ? " active" : "";
@@ -1750,7 +1761,8 @@ function reasonBarChart(byReason) {
       <span class="bar-track"><span class="bar-fill" style="width:${w}%"></span></span>
       <span class="bar-val">${v}</span>
       <span class="bar-pct">${pct}%</span></div>`;
-  }).join("") + `</div>`;
+  }).join("");
+  return `<div class="bars bars-lg" style="grid-template-rows:repeat(${rows},auto)">${body}</div>`;
 }
 function renderReasonChart(d) {
   const el = $("#reasonChart");
@@ -1765,11 +1777,11 @@ function renderReasonChart(d) {
   }
   const foot = $("#reasonFoot");
   if (foot) {
-    const bits = [`当前筛选 ${m.all || 0} 条`, `已完成 ${m.done || 0} 条`, `有原因 ${m.withReason || 0} 条`];
-    if (m.skipped) bits.push(`其中 ${m.skipped} 条为「仍在用药／已购药」等非停减描述，未计入`);
+    const bits = [`当前筛选 ${m.all || 0}`, `已完成 ${m.done || 0}`, `有原因 ${m.withReason || 0}`];
+    if (m.skipped) bits.push(`剔除 ${m.skipped} 条非停减描述`);
     const pending = (m.withReason || 0) - (m.counted || 0) - (m.skipped || 0);
-    if (pending > 0) bits.push(`${pending} 条有原因但任务状态非「已完成」，未计入`);
-    foot.textContent = "口径：" + bits.join(" · ");
+    if (pending > 0) bits.push(`未计入 ${pending} 条（任务未完成）`);
+    foot.textContent = "口径（记录数）：" + bits.join(" · ");
   }
   el.querySelectorAll(".bar-row.clickable").forEach(row => {
     row.onclick = () => {
