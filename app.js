@@ -364,7 +364,7 @@ function renderGlobal(d) {
 
 function renderCharts(d) {
   $("#donutChart").innerHTML = donutChart(d.by_status || {});
-  $("#drugChart").innerHTML = barChart(d.by_drug || {});
+  renderDrugChart(d);
   // 随访时间趋势：时间跨度 ≤ 31 天（约一个月）时按「天」画折线，否则按「月」
   const bd = d.by_day || {};
   const bm = d.by_month || {};
@@ -439,16 +439,38 @@ function donutChart(data) {
     `<div class="lg-item"><span class="lg-dot" style="background:${STATUS_COLOR[k]}"></span>${k} ${v}</div>`).join("");
   return `<div class="donut-flex"><svg viewBox="0 0 140 140" width="118" height="118">${paths}<text x="70" y="76" text-anchor="middle" font-size="19" font-weight="700" fill="#1f2937">${total}</text></svg><div class="lg">${legend}</div></div>`;
 }
+// 药品记录数：呈现**全部**药品（不止 Top5），纵向滚动；点击条形即按该药品筛选（再点取消）。
+// 卡片尺寸保持不变——滚动区内高由 CSS #drugChart{max-height} 固定为原 Top5 的高度。
 function barChart(data) {
-  const entries = Object.entries(data).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const entries = Object.entries(data || {}).sort((a, b) => b[1] - a[1]);
   if (!entries.length) return '<div class="chart-empty">暂无数据</div>';
   const max = Math.max(...entries.map(e => e[1]));
   const rows = entries.map(([k, v]) => {
     const w = Math.max(2, Math.round(v / max * 100));
-    const lbl = k.length > 7 ? k.slice(0, 7) + "…" : k;
-    return `<div class="bar-row"><span class="bar-label" title="${esc(k)}">${esc(lbl)}</span><span class="bar-track"><span class="bar-fill" style="width:${w}%"></span></span><span class="bar-val">${v}</span></div>`;
+    const lbl = k.length > 8 ? k.slice(0, 8) + "…" : k;
+    const active = state.drugs.has(k) ? " active" : "";
+    return `<div class="bar-row clickable${active}" data-drug="${esc(k)}" title="${esc(k)}：${v} 条 · 点击筛选，再次点击取消">
+      <span class="bar-label">${esc(lbl)}</span>
+      <span class="bar-track"><span class="bar-fill" style="width:${w}%"></span></span>
+      <span class="bar-val">${v}</span></div>`;
   }).join("");
-  return `<div class="bars">${rows}</div>`;
+  return `<div class="bars bars-scroll">${rows}</div>`;
+}
+function renderDrugChart(d) {
+  const el = $("#drugChart");
+  if (!el) return;
+  // 重渲染后保持滚动位置：否则点选列表深处的药品会把列表弹回顶部
+  const keepTop = el.scrollTop;
+  el.innerHTML = barChart(d.by_drug || {});
+  el.scrollTop = keepTop;
+  el.querySelectorAll(".bar-row.clickable").forEach(row => {
+    row.onclick = () => {
+      const k = row.dataset.drug;
+      if (state.drugs.has(k)) state.drugs.delete(k); else state.drugs.add(k);
+      state.page = 1;
+      refresh();
+    };
+  });
 }
 
 // 「停药/减量根本原因」分布：横向条形图，点击条形即加入/取消筛选（下钻）

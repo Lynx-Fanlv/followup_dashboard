@@ -109,10 +109,14 @@
   .lg-dot{width:9px;height:9px;border-radius:50%;display:inline-block}
   .bars{display:flex;flex-direction:column;gap:7px}
   .bar-row{display:flex;align-items:center;gap:8px;font-size:12px}
-  .bar-label{width:88px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar-label{width:100px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .bar-track{flex:1;background:var(--gray-bg);border-radius:5px;height:14px;overflow:hidden}
   .bar-fill{display:block;height:100%;background:var(--brand);border-radius:5px}
   .bar-val{width:38px;text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
+  .chart-title .ct-hint{font-size:11px;font-weight:400;color:var(--muted);margin-left:6px}
+  /* 药品卡：呈现全部药品，滚动区内高固定为原 Top5 的高度，卡片尺寸不变 */
+  #drugChart{max-height:124px;overflow-y:auto;overscroll-behavior:contain}
+  .bars-scroll{padding-right:2px}
   /* 根本原因卡：两列紧凑条形（标签用短名），超高时才滚动 */
   #reasonCard .chart-title{margin-bottom:2px}
   #reasonCard .chart-sub{margin:0 0 6px}
@@ -328,7 +332,7 @@
     <!-- 图表：四张同排（根本原因卡占更宽份额，两列条形刚好放得下） -->
     <div class="charts">
       <div class="chart-card"><div class="chart-title">用药状态占比</div><div id="donutChart"></div></div>
-      <div class="chart-card"><div class="chart-title">药品记录数 TOP5</div><div id="drugChart"></div></div>
+      <div class="chart-card"><div class="chart-title">药品记录数<span class="ct-hint">点击条形筛选</span></div><div id="drugChart"></div></div>
       <div class="chart-card"><div class="chart-title">随访时间趋势</div><div id="trendChart"></div></div>
       <div class="chart-card" id="reasonCard">
         <div class="chart-title">停药／减量根本原因</div>
