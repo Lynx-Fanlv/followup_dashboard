@@ -490,6 +490,25 @@ const REASON_BUCKETS = [
 const REASON_BUCKET_OTHER = "其他／未采集到原因";
 const REASON_BUCKET_SKIP = "非停减（仍在用药／已购药）";   // 不计入分母
 
+// 分桶短名：仅用于「根本原因分布」卡片（4 卡同排后每卡变窄，长名会被截断）。
+// 筛选下拉、明细表、导出仍用全名；卡片上的条形 hover 也会显示全名。
+const REASON_BUCKET_SHORT = {
+  "医嘱调整（停药／减量／推迟）": "医嘱调整",
+  "患者自主调整（停药／减量／推迟）": "自主调整",
+  "未到用药周期／延迟购药": "未及时购药",
+  "不良反应／不耐受": "不良反应",
+  "联系失败／失访": "联系失败",
+  "已减量／已停药（未注明方源）": "已停减未注明",
+  "购药渠道／便利性": "渠道便利",
+  "疾病稳定／疗程结束": "疾病稳定",
+  "经济／费用": "经济费用",
+  "疾病进展／耐药": "疾病进展",
+  "其他／未采集到原因": "其他未采集",
+  "疗效不佳": "疗效不佳",
+  "死亡": "死亡",
+  "非停减（仍在用药／已购药）": "非停减",
+};
+
 // 表单模板前缀，如「其他（请注明：______）:实际内容」「其他原因，记录具体原因:身体原因」
 // 只剥这一层，避免破坏「遵医嘱：改变用药时间间隔」这类前缀本身带语义的取值。
 const RE_REASON_FORM_PREFIX = /^(?:其他\s*(?:原因)?\s*[（(][^）)]{0,30}[）)]|其他\s*原因[，,、]?\s*(?:需门店自行备注原因|记录具体原因|记录原因|请注明|填写)?|其他\s*原因|其他)\s*[:：]\s*/;
@@ -539,7 +558,7 @@ if (typeof window !== "undefined") {
     KEYWORD_RULES, KEYWORD_RULES_MULTI, normHeader, _cell, _gtext,
     isPlaceholder, isStopOption, isStopText,
     CUSTOM_FOLLOWUP_RULES, parseCustomFollowup, customExtract, isLowInfoValue,
-    REASON_BUCKETS, REASON_BUCKET_OTHER, REASON_BUCKET_SKIP,
+    REASON_BUCKETS, REASON_BUCKET_OTHER, REASON_BUCKET_SKIP, REASON_BUCKET_SHORT,
     stripReasonPrefix, classifyReason,
     deriveStatus, deriveIrregularitySubtype, _rawStatusText,
     PROJECT_FIELDS, projectFields };

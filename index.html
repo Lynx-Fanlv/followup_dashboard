@@ -94,15 +94,16 @@
   .g-card.total{background:linear-gradient(135deg,var(--brand),#3b5bdb);border:1px solid var(--brand);border-left:4px solid #2f4ec0}
   .g-card.total .g-num,.g-card.total .g-cap{color:#fff}
   /* 图表 */
-  .charts{display:grid;grid-template-columns:1fr 1.2fr 1.3fr;gap:12px;margin:12px 0 4px}
+  /* 图表：四张同排；根本原因卡占更宽份额（1.85fr）以便放下两列条形 */
+  .charts{display:grid;grid-template-columns:1fr 1.1fr 1.2fr 1.85fr;gap:12px;margin:12px 0 4px}
   /* 图表随卡片宽度等比放大：折线图不再被固定高度「信箱化」，宽屏下不留空档 */
-  #trendChart svg{width:100%;height:auto;min-height:140px}
-  #donutChart svg{width:132px;height:132px}
+  #trendChart svg{width:100%;height:auto;min-height:118px}
+  #donutChart svg{width:120px;height:120px}
   .chart-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
   .chart-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px}
   .chart-sub{font-size:11px;color:var(--muted);margin:-4px 0 8px}
   .chart-empty{color:var(--muted);font-size:12px;text-align:center;padding:30px 0}
-  .donut-flex{display:flex;align-items:center;gap:14px}
+  .donut-flex{display:flex;align-items:center;gap:12px}
   .lg{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
   .lg-item{display:flex;align-items:center;gap:6px}
   .lg-dot{width:9px;height:9px;border-radius:50%;display:inline-block}
@@ -112,14 +113,12 @@
   .bar-track{flex:1;background:var(--gray-bg);border-radius:5px;height:14px;overflow:hidden}
   .bar-fill{display:block;height:100%;background:var(--brand);border-radius:5px}
   .bar-val{width:38px;text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
-  /* 「停药/减量根本原因」整行宽卡：两列排版 + 紧凑行高，超高时才滚动 */
-  .chart-row2{margin:10px 0 4px}
-  .chart-row2 .chart-card{padding:10px 14px}
-  .chart-row2 .chart-title{margin-bottom:2px}
-  .chart-row2 .chart-sub{margin:0 0 6px}
-  .bars-lg{display:grid;grid-auto-flow:column;gap:2px 20px;align-items:start}
-  .bars-lg .bar-row{display:grid;grid-template-columns:minmax(104px,164px) minmax(0,1fr) 44px 40px;
-    gap:8px;align-items:center;padding:1px 5px;border-radius:5px;font-size:12px;line-height:1.35}
+  /* 根本原因卡：两列紧凑条形（标签用短名），超高时才滚动 */
+  #reasonCard .chart-title{margin-bottom:2px}
+  #reasonCard .chart-sub{margin:0 0 6px}
+  .bars-lg{display:grid;grid-auto-flow:column;gap:2px 14px;align-items:start}
+  .bars-lg .bar-row{display:grid;grid-template-columns:minmax(72px,92px) minmax(0,1fr) 40px 38px;
+    gap:7px;align-items:center;padding:1px 4px;border-radius:5px;font-size:12px;line-height:1.35}
   .bars-lg .bar-label{width:auto;color:var(--text);font-size:12px}
   .bars-lg .bar-track{height:10px}
   .bars-lg .bar-val{width:auto;text-align:right;font-weight:600}
@@ -130,12 +129,19 @@
   .bar-row.active{background:var(--brand-soft)}
   .bar-row.active .bar-label{color:var(--brand);font-weight:600}
   .bar-row.active .bar-fill{background:var(--brand);box-shadow:inset 0 0 0 1px #fff}
-  /* 条形超出一屏高度时才出现滚动条（罕见，桶变多时兜底） */
-  #reasonChart{max-height:168px;overflow-y:auto;overscroll-behavior:contain}
+  /* 条形积到超过卡片高度时才出现滚动条（桶变多时兜底） */
+  #reasonChart{max-height:136px;overflow-y:auto;overscroll-behavior:contain}
   .chart-foot{font-size:11px;color:var(--muted);margin-top:6px;padding-top:6px;border-top:1px solid var(--line);line-height:1.5}
-  /* 窄屏：退回单列，由 #reasonChart 的 max-height 负责滚动 */
+  /* 中等屏：四卡折成两行（否则每卡过窄） */
+  @media (max-width: 1240px){
+    .charts{grid-template-columns:1fr 1.2fr;gap:12px}
+    #reasonChart{max-height:none}
+  }
+  /* 窄屏：单列 + 单列条形，由 #reasonChart 的 max-height 负责滚动 */
   @media (max-width: 860px){
+    .charts{grid-template-columns:1fr}
     .bars-lg{grid-template-rows:none !important;grid-auto-flow:row !important}
+    #reasonChart{max-height:168px}
   }
   /* 统一筛选栏 */
   .filterbar{position:sticky;top:0;z-index:8;display:flex;flex-wrap:wrap;gap:10px;align-items:center;
@@ -319,15 +325,12 @@
     <!-- 全量统计 -->
     <div class="global-summary" id="globalRow"></div>
 
-    <!-- 图表 -->
+    <!-- 图表：四张同排（根本原因卡占更宽份额，两列条形刚好放得下） -->
     <div class="charts">
       <div class="chart-card"><div class="chart-title">用药状态占比</div><div id="donutChart"></div></div>
       <div class="chart-card"><div class="chart-title">药品记录数 TOP5</div><div id="drugChart"></div></div>
       <div class="chart-card"><div class="chart-title">随访时间趋势</div><div id="trendChart"></div></div>
-    </div>
-    <!-- 停药/减量根本原因分布（整行，条形可点击下钻） -->
-    <div class="charts chart-row2">
-      <div class="chart-card">
+      <div class="chart-card" id="reasonCard">
         <div class="chart-title">停药／减量根本原因</div>
         <div class="chart-sub" id="reasonSub"></div>
         <div id="reasonChart"></div>
@@ -931,6 +934,25 @@ const REASON_BUCKETS = [
 const REASON_BUCKET_OTHER = "其他／未采集到原因";
 const REASON_BUCKET_SKIP = "非停减（仍在用药／已购药）";   // 不计入分母
 
+// 分桶短名：仅用于「根本原因分布」卡片（4 卡同排后每卡变窄，长名会被截断）。
+// 筛选下拉、明细表、导出仍用全名；卡片上的条形 hover 也会显示全名。
+const REASON_BUCKET_SHORT = {
+  "医嘱调整（停药／减量／推迟）": "医嘱调整",
+  "患者自主调整（停药／减量／推迟）": "自主调整",
+  "未到用药周期／延迟购药": "未及时购药",
+  "不良反应／不耐受": "不良反应",
+  "联系失败／失访": "联系失败",
+  "已减量／已停药（未注明方源）": "已停减未注明",
+  "购药渠道／便利性": "渠道便利",
+  "疾病稳定／疗程结束": "疾病稳定",
+  "经济／费用": "经济费用",
+  "疾病进展／耐药": "疾病进展",
+  "其他／未采集到原因": "其他未采集",
+  "疗效不佳": "疗效不佳",
+  "死亡": "死亡",
+  "非停减（仍在用药／已购药）": "非停减",
+};
+
 // 表单模板前缀，如「其他（请注明：______）:实际内容」「其他原因，记录具体原因:身体原因」
 // 只剥这一层，避免破坏「遵医嘱：改变用药时间间隔」这类前缀本身带语义的取值。
 const RE_REASON_FORM_PREFIX = /^(?:其他\s*(?:原因)?\s*[（(][^）)]{0,30}[）)]|其他\s*原因[，,、]?\s*(?:需门店自行备注原因|记录具体原因|记录原因|请注明|填写)?|其他\s*原因|其他)\s*[:：]\s*/;
@@ -980,7 +1002,7 @@ if (typeof window !== "undefined") {
     KEYWORD_RULES, KEYWORD_RULES_MULTI, normHeader, _cell, _gtext,
     isPlaceholder, isStopOption, isStopText,
     CUSTOM_FOLLOWUP_RULES, parseCustomFollowup, customExtract, isLowInfoValue,
-    REASON_BUCKETS, REASON_BUCKET_OTHER, REASON_BUCKET_SKIP,
+    REASON_BUCKETS, REASON_BUCKET_OTHER, REASON_BUCKET_SKIP, REASON_BUCKET_SHORT,
     stripReasonPrefix, classifyReason,
     deriveStatus, deriveIrregularitySubtype, _rawStatusText,
     PROJECT_FIELDS, projectFields };
@@ -1753,10 +1775,12 @@ function barChart(data) {
 }
 
 // 「停药/减量根本原因」分布：横向条形图，点击条形即加入/取消筛选（下钻）
-// 排版：两列（按名次自上而下、先填左列），行高紧凑；桶很多时由 #reasonChart 的 max-height 出滚动条。
+// 排版：两列（按名次自上而下、先填左列）；标签用短名（全名放 title 悬停提示）；
+// 桶很多时由 #reasonChart 的 max-height 出滚动条。
 function reasonBarChart(byReason) {
   const entries = Object.entries(byReason || {}).sort((a, b) => b[1] - a[1]);
   if (!entries.length) return '<div class="chart-empty">当前筛选下暂无「已完成任务」的根本原因数据</div>';
+  const SHORT = M.REASON_BUCKET_SHORT || {};
   const max = Math.max(...entries.map(e => e[1]));
   const total = entries.reduce((a, [, v]) => a + v, 0);
   const rows = Math.ceil(entries.length / 2);
@@ -1764,8 +1788,9 @@ function reasonBarChart(byReason) {
     const w = Math.max(2, Math.round(v / max * 100));
     const pct = (v / total * 100).toFixed(1);
     const active = state.reasons.has(k) ? " active" : "";
-    return `<div class="bar-row clickable${active}" data-reason="${esc(k)}" title="点击筛选「${esc(k)}」，再次点击取消">
-      <span class="bar-label" title="${esc(k)}">${esc(k)}</span>
+    const label = SHORT[k] || k;
+    return `<div class="bar-row clickable${active}" data-reason="${esc(k)}" title="${esc(k)}：${v} 条（${pct}%）· 点击筛选，再次点击取消">
+      <span class="bar-label">${esc(label)}</span>
       <span class="bar-track"><span class="bar-fill" style="width:${w}%"></span></span>
       <span class="bar-val">${v}</span>
       <span class="bar-pct">${pct}%</span></div>`;
@@ -1780,16 +1805,17 @@ function renderReasonChart(d) {
   const sub = $("#reasonSub");
   if (sub) {
     sub.textContent = m.counted
-      ? `基于当前筛选 · 已完成任务 ${m.done} 条，其中 ${m.counted} 条有停减量原因 · 点击条形可下钻`
+      ? `已完成 ${m.done} 条 · 有原因 ${m.counted} 条 · 点击条形下钻`
       : "基于当前筛选 · 暂无「已完成任务」的停减量原因";
   }
   const foot = $("#reasonFoot");
   if (foot) {
-    const bits = [`当前筛选 ${m.all || 0}`, `已完成 ${m.done || 0}`, `有原因 ${m.withReason || 0}`];
-    if (m.skipped) bits.push(`剔除 ${m.skipped} 条非停减描述`);
+    const bits = [`记录数口径`, `筛选 ${m.all || 0}`, `已完成 ${m.done || 0}`, `有原因 ${m.withReason || 0}`];
+    if (m.skipped) bits.push(`剔除非停减 ${m.skipped}`);
     const pending = (m.withReason || 0) - (m.counted || 0) - (m.skipped || 0);
-    if (pending > 0) bits.push(`未计入 ${pending} 条（任务未完成）`);
-    foot.textContent = "口径（记录数）：" + bits.join(" · ");
+    if (pending > 0) bits.push(`未计入未完成 ${pending}`);
+    foot.textContent = bits.join(" · ");
+    foot.title = "仅统计任务状态为「已完成」的记录；「非停减（仍在用药／已购药）」类描述已剔除，不计入分子分母。";
   }
   el.querySelectorAll(".bar-row.clickable").forEach(row => {
     row.onclick = () => {

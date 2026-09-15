@@ -452,10 +452,12 @@ function barChart(data) {
 }
 
 // 「停药/减量根本原因」分布：横向条形图，点击条形即加入/取消筛选（下钻）
-// 排版：两列（按名次自上而下、先填左列），行高紧凑；桶很多时由 #reasonChart 的 max-height 出滚动条。
+// 排版：两列（按名次自上而下、先填左列）；标签用短名（全名放 title 悬停提示）；
+// 桶很多时由 #reasonChart 的 max-height 出滚动条。
 function reasonBarChart(byReason) {
   const entries = Object.entries(byReason || {}).sort((a, b) => b[1] - a[1]);
   if (!entries.length) return '<div class="chart-empty">当前筛选下暂无「已完成任务」的根本原因数据</div>';
+  const SHORT = M.REASON_BUCKET_SHORT || {};
   const max = Math.max(...entries.map(e => e[1]));
   const total = entries.reduce((a, [, v]) => a + v, 0);
   const rows = Math.ceil(entries.length / 2);
@@ -463,8 +465,9 @@ function reasonBarChart(byReason) {
     const w = Math.max(2, Math.round(v / max * 100));
     const pct = (v / total * 100).toFixed(1);
     const active = state.reasons.has(k) ? " active" : "";
-    return `<div class="bar-row clickable${active}" data-reason="${esc(k)}" title="点击筛选「${esc(k)}」，再次点击取消">
-      <span class="bar-label" title="${esc(k)}">${esc(k)}</span>
+    const label = SHORT[k] || k;
+    return `<div class="bar-row clickable${active}" data-reason="${esc(k)}" title="${esc(k)}：${v} 条（${pct}%）· 点击筛选，再次点击取消">
+      <span class="bar-label">${esc(label)}</span>
       <span class="bar-track"><span class="bar-fill" style="width:${w}%"></span></span>
       <span class="bar-val">${v}</span>
       <span class="bar-pct">${pct}%</span></div>`;
@@ -479,16 +482,17 @@ function renderReasonChart(d) {
   const sub = $("#reasonSub");
   if (sub) {
     sub.textContent = m.counted
-      ? `基于当前筛选 · 已完成任务 ${m.done} 条，其中 ${m.counted} 条有停减量原因 · 点击条形可下钻`
+      ? `已完成 ${m.done} 条 · 有原因 ${m.counted} 条 · 点击条形下钻`
       : "基于当前筛选 · 暂无「已完成任务」的停减量原因";
   }
   const foot = $("#reasonFoot");
   if (foot) {
-    const bits = [`当前筛选 ${m.all || 0}`, `已完成 ${m.done || 0}`, `有原因 ${m.withReason || 0}`];
-    if (m.skipped) bits.push(`剔除 ${m.skipped} 条非停减描述`);
+    const bits = [`记录数口径`, `筛选 ${m.all || 0}`, `已完成 ${m.done || 0}`, `有原因 ${m.withReason || 0}`];
+    if (m.skipped) bits.push(`剔除非停减 ${m.skipped}`);
     const pending = (m.withReason || 0) - (m.counted || 0) - (m.skipped || 0);
-    if (pending > 0) bits.push(`未计入 ${pending} 条（任务未完成）`);
-    foot.textContent = "口径（记录数）：" + bits.join(" · ");
+    if (pending > 0) bits.push(`未计入未完成 ${pending}`);
+    foot.textContent = bits.join(" · ");
+    foot.title = "仅统计任务状态为「已完成」的记录；「非停减（仍在用药／已购药）」类描述已剔除，不计入分子分母。";
   }
   el.querySelectorAll(".bar-row.clickable").forEach(row => {
     row.onclick = () => {

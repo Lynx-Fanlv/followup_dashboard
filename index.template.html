@@ -94,15 +94,16 @@
   .g-card.total{background:linear-gradient(135deg,var(--brand),#3b5bdb);border:1px solid var(--brand);border-left:4px solid #2f4ec0}
   .g-card.total .g-num,.g-card.total .g-cap{color:#fff}
   /* 图表 */
-  .charts{display:grid;grid-template-columns:1fr 1.2fr 1.3fr;gap:12px;margin:12px 0 4px}
+  /* 图表：四张同排；根本原因卡占更宽份额（1.85fr）以便放下两列条形 */
+  .charts{display:grid;grid-template-columns:1fr 1.1fr 1.2fr 1.85fr;gap:12px;margin:12px 0 4px}
   /* 图表随卡片宽度等比放大：折线图不再被固定高度「信箱化」，宽屏下不留空档 */
-  #trendChart svg{width:100%;height:auto;min-height:140px}
-  #donutChart svg{width:132px;height:132px}
+  #trendChart svg{width:100%;height:auto;min-height:118px}
+  #donutChart svg{width:120px;height:120px}
   .chart-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
   .chart-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px}
   .chart-sub{font-size:11px;color:var(--muted);margin:-4px 0 8px}
   .chart-empty{color:var(--muted);font-size:12px;text-align:center;padding:30px 0}
-  .donut-flex{display:flex;align-items:center;gap:14px}
+  .donut-flex{display:flex;align-items:center;gap:12px}
   .lg{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
   .lg-item{display:flex;align-items:center;gap:6px}
   .lg-dot{width:9px;height:9px;border-radius:50%;display:inline-block}
@@ -112,14 +113,12 @@
   .bar-track{flex:1;background:var(--gray-bg);border-radius:5px;height:14px;overflow:hidden}
   .bar-fill{display:block;height:100%;background:var(--brand);border-radius:5px}
   .bar-val{width:38px;text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
-  /* 「停药/减量根本原因」整行宽卡：两列排版 + 紧凑行高，超高时才滚动 */
-  .chart-row2{margin:10px 0 4px}
-  .chart-row2 .chart-card{padding:10px 14px}
-  .chart-row2 .chart-title{margin-bottom:2px}
-  .chart-row2 .chart-sub{margin:0 0 6px}
-  .bars-lg{display:grid;grid-auto-flow:column;gap:2px 20px;align-items:start}
-  .bars-lg .bar-row{display:grid;grid-template-columns:minmax(104px,164px) minmax(0,1fr) 44px 40px;
-    gap:8px;align-items:center;padding:1px 5px;border-radius:5px;font-size:12px;line-height:1.35}
+  /* 根本原因卡：两列紧凑条形（标签用短名），超高时才滚动 */
+  #reasonCard .chart-title{margin-bottom:2px}
+  #reasonCard .chart-sub{margin:0 0 6px}
+  .bars-lg{display:grid;grid-auto-flow:column;gap:2px 14px;align-items:start}
+  .bars-lg .bar-row{display:grid;grid-template-columns:minmax(72px,92px) minmax(0,1fr) 40px 38px;
+    gap:7px;align-items:center;padding:1px 4px;border-radius:5px;font-size:12px;line-height:1.35}
   .bars-lg .bar-label{width:auto;color:var(--text);font-size:12px}
   .bars-lg .bar-track{height:10px}
   .bars-lg .bar-val{width:auto;text-align:right;font-weight:600}
@@ -130,12 +129,19 @@
   .bar-row.active{background:var(--brand-soft)}
   .bar-row.active .bar-label{color:var(--brand);font-weight:600}
   .bar-row.active .bar-fill{background:var(--brand);box-shadow:inset 0 0 0 1px #fff}
-  /* 条形超出一屏高度时才出现滚动条（罕见，桶变多时兜底） */
-  #reasonChart{max-height:168px;overflow-y:auto;overscroll-behavior:contain}
+  /* 条形积到超过卡片高度时才出现滚动条（桶变多时兜底） */
+  #reasonChart{max-height:136px;overflow-y:auto;overscroll-behavior:contain}
   .chart-foot{font-size:11px;color:var(--muted);margin-top:6px;padding-top:6px;border-top:1px solid var(--line);line-height:1.5}
-  /* 窄屏：退回单列，由 #reasonChart 的 max-height 负责滚动 */
+  /* 中等屏：四卡折成两行（否则每卡过窄） */
+  @media (max-width: 1240px){
+    .charts{grid-template-columns:1fr 1.2fr;gap:12px}
+    #reasonChart{max-height:none}
+  }
+  /* 窄屏：单列 + 单列条形，由 #reasonChart 的 max-height 负责滚动 */
   @media (max-width: 860px){
+    .charts{grid-template-columns:1fr}
     .bars-lg{grid-template-rows:none !important;grid-auto-flow:row !important}
+    #reasonChart{max-height:168px}
   }
   /* 统一筛选栏 */
   .filterbar{position:sticky;top:0;z-index:8;display:flex;flex-wrap:wrap;gap:10px;align-items:center;
@@ -319,15 +325,12 @@
     <!-- 全量统计 -->
     <div class="global-summary" id="globalRow"></div>
 
-    <!-- 图表 -->
+    <!-- 图表：四张同排（根本原因卡占更宽份额，两列条形刚好放得下） -->
     <div class="charts">
       <div class="chart-card"><div class="chart-title">用药状态占比</div><div id="donutChart"></div></div>
       <div class="chart-card"><div class="chart-title">药品记录数 TOP5</div><div id="drugChart"></div></div>
       <div class="chart-card"><div class="chart-title">随访时间趋势</div><div id="trendChart"></div></div>
-    </div>
-    <!-- 停药/减量根本原因分布（整行，条形可点击下钻） -->
-    <div class="charts chart-row2">
-      <div class="chart-card">
+      <div class="chart-card" id="reasonCard">
         <div class="chart-title">停药／减量根本原因</div>
         <div class="chart-sub" id="reasonSub"></div>
         <div id="reasonChart"></div>
