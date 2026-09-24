@@ -286,6 +286,9 @@
   .snap-banner{background:#fff7ed;border:1px solid var(--warn);color:#9a3412;
     border-radius:10px;padding:8px 14px;font-size:12px;margin:10px 0}
   .snap-banner.hidden{display:none}
+  /* 快照内的「数据范围」说明（快照为筛选子集时显示） */
+  .snap-banner .snap-scope{margin-top:5px;padding-top:5px;font-weight:600;
+    border-top:1px dashed rgba(154,52,18,.35)}
 </style>
 </head>
 <body>
@@ -2335,15 +2338,60 @@ $("#keyConfirm").onclick = () => {
 $("#keyInput").addEventListener("keydown", e => { if (e.key === "Enter") $("#keyConfirm").click(); });
 $("#keyMask").addEventListener("click", e => { if (e.target === $("#keyMask")) $("#keyMask").classList.add("hidden"); });
 
+/* ============ 快照数据范围（2026-09-24：快照 = 当前筛选结果，不再是全量） ============ */
+// 文件名标签：只取「药品」「时间」这两个最能一眼认出的维度，避免文件名过长；
+// 若用户只用其它维度筛选（状态/药店/执行人等），退回通用标签「按筛选」。
+function scopeFileTag(kw) {
+  const t = [];
+  if (kw.drug && kw.drug.length) {
+    t.push(kw.drug.length <= 2 ? kw.drug.join("+") : (kw.drug[0] + "等" + kw.drug.length + "个品种"));
+  }
+  if (kw.start || kw.end) {
+    t.push((kw.start || "最早").replace(/-/g, "") + "-" + (kw.end || "最新").replace(/-/g, ""));
+  }
+  return t.length ? t : null;
+}
+// 范围明细：写进快照内部的「数据范围」说明行，顺序与筛选栏一致
+function scopeLines(kw) {
+  const out = [];
+  if (kw.status && kw.status.length) out.push("用药状态 = " + kw.status.join("、"));
+  if (kw.subtype) out.push("不规范下钻 = " + kw.subtype);
+  if (kw.drug && kw.drug.length) out.push("药品 = " + kw.drug.join("、"));
+  if (kw.pharmacy && kw.pharmacy.length) out.push("药店 = " + kw.pharmacy.join("、"));
+  if (kw.executor && kw.executor.length) out.push("执行人 = " + kw.executor.join("、"));
+  if (kw.reason && kw.reason.length) out.push("根本原因 = " + kw.reason.join("、"));
+  if (kw.start || kw.end) out.push("随访时间 = " + (kw.start || "不限") + " ~ " + (kw.end || "不限"));
+  if (kw.q) out.push("关键词 = " + kw.q);
+  return out;
+}
+const RE_FNAME_BAD = /[\\/:*?"<>|]/g;
+const sanitizeFname = s => String(s).replace(RE_FNAME_BAD, "_");
+
 /* ============ 快照生成（自包含 HTML，可离线打开/分享） ============ */
 async function doSnapshot(desen) {
   if (!STORE.records.length) { alert("暂无数据可生成快照"); return; }
+  // 快照的数据范围 = 当前筛选结果（与「导出明细」同一套 filter_records，口径完全一致）。
+  // 想「只发 A 品种给他人」，就在筛选栏选好 A 品种再点下载。
+  const kw = currentKw();
+  const recs = filter_records(STORE.records, kw);
+  if (!recs.length) {
+    alert("当前筛选条件下没有记录，无法生成快照。\n请调整筛选条件，或点「清除筛选」后重试。");
+    return;
+  }
+  const total = STORE.records.length;
+  const lines = scopeLines(kw);
+  const scope = { filtered: lines.length > 0, lines, count: recs.length, total };
+  const tag = scope.filtered ? (scopeFileTag(kw) || ["按筛选"]) : null;
   showLoading(desen ? "正在生成脱敏快照…" : "正在生成不脱敏快照…");
   try {
     // 脱敏快照：写入文件的是「已脱敏」记录，原始 PII 不存在于文件中 → 无法还原 / 无法按全名检索。
-    const records = desen ? STORE.records.map(r => window.Pipeline.desensitize(r)).map(cleanRec)
-                           : STORE.records.map(cleanRec);
-    const snap = { desen, records, files: STORE.files, buildAt: new Date().toISOString() };
+    const records = (desen ? recs.map(r => window.Pipeline.desensitize(r)) : recs).map(cleanRec);
+    // 文件清单同步收窄：只保留真正贡献了这批记录的文件
+    const keepIds = new Set(recs.map(r => r._file_id));
+    const snap = {
+      desen, records, scope, buildAt: new Date().toISOString(),
+      files: (STORE.files || []).filter(f => keepIds.has(f.id)),
+    };
     // 转义 JSON 中的尖括号，防止内联 HTML 时提前闭合 script 标签
     const dataJson = JSON.stringify(snap).replace(/</g, "\\u003c");
     const dataScript = `<\script>window.__SNAP__=${dataJson};<\/script>`;
@@ -2376,7 +2424,8 @@ async function doSnapshot(desen) {
     const bodyIdx = html.lastIndexOf("</body>");
     html = html.slice(0, bodyIdx) + dataScript + bootstrap + "\n" + html.slice(bodyIdx);
     download(new Blob([html], { type: "text/html" }),
-      desen ? "随访看板_脱敏快照.html" : "随访看板_不脱敏快照.html");
+      "随访看板_" + (desen ? "脱敏" : "不脱敏") + "快照"
+      + (tag ? "_" + tag.map(sanitizeFname).join("_") : "") + ".html");
   } catch (err) {
     alert("快照生成失败：" + (err && err.message ? err.message : err));
   } finally {
@@ -2407,9 +2456,13 @@ function loadSnapshot(snap) {
   $("#drop").classList.add("hidden");
   $("#pendingArea").classList.add("hidden");
   $("#snapBanner").classList.remove("hidden");
-  $("#snapBanner").textContent = snap.desen
+  // 快照可能只是「当前筛选结果」的一个子集，必须把范围写清楚，避免接收方误以为拿到全量
+  const scopeHtml = (snap.scope && snap.scope.filtered)
+    ? `<div class="snap-scope">📊 数据范围（非全量）：${esc(snap.scope.lines.join("；"))}；共 ${snap.scope.count} 条（全量 ${snap.scope.total} 条）</div>`
+    : "";
+  $("#snapBanner").innerHTML = (snap.desen
     ? "📄 这是一份脱敏快照：姓名、电话已脱敏，文件中不含任何明文个人信息，可安全分享。"
-    : "⚠️ 这是一份「不脱敏」快照：包含明文姓名、电话等个人信息，仅可分享给可信接收方。";
+    : "⚠️ 这是一份「不脱敏」快照：包含明文姓名、电话等个人信息，仅可分享给可信接收方。") + scopeHtml;
   // 快照为只读分享件：隐藏上传、文件管理、导出、再次快照等按钮
   const fb = document.querySelector(".filebar"); if (fb) fb.classList.add("hidden");
   ["#exportDesenBtn", "#exportPlainBtn", "#snapshotDesenBtn", "#snapshotPlainBtn"].forEach(s => $(s).classList.add("hidden"));
