@@ -23,12 +23,50 @@
   .head-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
   header h1{margin:0;font-size:18px;font-weight:600}
   header p{margin:4px 0 0;color:var(--muted);font-size:13px}
-  /* 「使用方法教程」入口按钮：紧贴标题右侧 */
-  .tut-open{background:var(--brand);color:#fff;border:none;border-radius:999px;
-    padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;
-    font-family:inherit;box-shadow:0 2px 8px rgba(59,91,219,.28);transition:.15s}
+  /* 「使用方法教程」入口按钮：紧贴标题右侧。
+     可发现性按成熟 onboarding 的做法：① ▶ 播放图标 —— 通用语汇，一眼看出"点了会开始一段引导"；
+     ② 时长副标签，先给承诺；③ 未看过时按钮呼吸光环 + 右上角红点，把注意力引过去（见 .is-new）；
+     ④ 首次访问另有一个锚定气泡把"点了会发生什么"写清楚（见 .tut-coach）。 */
+  .tut-open{position:relative;display:inline-flex;align-items:center;gap:7px;
+    background:var(--brand);color:#fff;border:none;border-radius:999px;
+    padding:5px 12px 5px 8px;font-size:13px;font-weight:600;cursor:pointer;
+    white-space:nowrap;font-family:inherit;
+    box-shadow:0 2px 8px rgba(59,91,219,.28);transition:.15s}
   .tut-open:hover{background:#2f4ec0;transform:translateY(-1px)}
   .tut-open.hidden{display:none}
+  .tut-open-ico{width:19px;height:19px;border-radius:50%;background:rgba(255,255,255,.24);
+    display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .tut-open-ico svg{display:block;margin-left:1.5px}
+  .tut-open-sub{font-size:11px;font-weight:500;opacity:.85;padding-left:7px;
+    border-left:1px solid rgba(255,255,255,.35)}
+  .tut-open.is-new{animation:tutBreath 2.4s ease-in-out infinite}
+  .tut-open.is-new::after{content:"";position:absolute;top:-2px;right:-2px;width:9px;height:9px;
+    border-radius:50%;background:#ff4d4f;border:2px solid #fff;animation:tutDot 2s ease-out infinite}
+  @keyframes tutBreath{0%,100%{box-shadow:0 2px 8px rgba(59,91,219,.28)}
+    50%{box-shadow:0 2px 8px rgba(59,91,219,.28),0 0 0 7px rgba(59,91,219,.14)}}
+  @keyframes tutDot{0%{box-shadow:0 0 0 0 rgba(255,77,79,.6)}
+    70%{box-shadow:0 0 0 7px rgba(255,77,79,0)}
+    100%{box-shadow:0 0 0 0 rgba(255,77,79,0)}}
+  /* 首次访问的引导气泡：把"点击之后会发生什么"写清楚，并给「开始 / 以后再说」两个出口 */
+  .tut-coach{position:fixed;z-index:88;width:296px;background:#fff;border:1px solid var(--line);
+    border-radius:12px;padding:13px 15px 12px;box-shadow:0 16px 44px rgba(15,23,42,.24);
+    opacity:0;transform:translateY(-6px);transition:opacity .22s,transform .22s}
+  .tut-coach.on{opacity:1;transform:none}
+  .tut-coach.hidden{display:none}
+  .tut-coach::before{content:"";position:absolute;top:-7px;left:28px;width:12px;height:12px;
+    background:#fff;border-left:1px solid var(--line);border-top:1px solid var(--line);
+    transform:rotate(45deg)}
+  .tut-coach h4{margin:0 0 5px;font-size:13px;display:flex;align-items:center;gap:6px}
+  .tut-coach h4 .dot{width:6px;height:6px;border-radius:50%;background:var(--brand);flex:0 0 auto}
+  .tut-coach p{margin:0 0 11px;font-size:12px;color:var(--muted);line-height:1.65}
+  .tut-coach p b{color:var(--brand)}
+  .tut-coach-btns{display:flex;align-items:center;gap:12px}
+  .tut-coach-go{background:var(--brand);color:#fff;border:none;border-radius:8px;
+    padding:7px 14px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit}
+  .tut-coach-go:hover{background:#2f4ec0}
+  .tut-coach-later{background:transparent;border:none;color:var(--muted);font-size:12px;
+    cursor:pointer;font-family:inherit;padding:0}
+  .tut-coach-later:hover{color:var(--text);text-decoration:underline}
   .wrap{max-width:var(--wrap);margin:0 auto;padding:20px var(--pad-x) 60px}
   .upload{border:2px dashed var(--line);border-radius:12px;background:var(--panel);
          padding:22px;text-align:center;transition:.15s}
@@ -354,7 +392,15 @@
   <div class="head-inner">
   <div class="head-row">
     <h1>随访数据看板（纯本地版）</h1>
-    <button class="tut-open" id="tutBtn" type="button" title="用一个虚构示例数据带你走一遍全部功能">使用方法教程</button>
+    <button class="tut-open" id="tutBtn" type="button"
+            aria-label="打开使用方法教程（动画引导）"
+            title="点这里开始动画教程：用一份虚构示例数据，带你走一遍上传、筛选、图表、导出">
+      <span class="tut-open-ico" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="11" height="11"><path d="M8 5v14l11-7z" fill="#fff"/></svg>
+      </span>
+      <span>使用方法教程</span>
+      <span class="tut-open-sub">1 分钟上手</span>
+    </button>
   </div>
   <p>上传 Excel → 点「开始分析」→ 自动归一化并展示。所有解析与计算均在你的浏览器内完成，数据不会上传到任何服务器。</p>
   </div>
@@ -2187,6 +2233,8 @@ function addToPending(files) {
     }
   }
   renderPending();
+  // 用户已经开始动手用了：收起「第一次使用？」引导气泡，别挡着
+  if (added) tutHideCoach(false);
   if (added) $("#pendingArea").classList.remove("hidden");
 }
 function renderPending() {
@@ -2489,13 +2537,20 @@ async function doSnapshot(desen) {
       desenAnchor = document.createComment("desen-tog-removed-in-snapshot");
       desenTog.parentNode.replaceChild(desenAnchor, desenTog);
     }
-    // 教程用过的浮层（遮罩/说明卡/提示条）虽然已隐藏，也不应进入快照：临时摘出，序列化后放回
-    const tutNodes = [TUT.root, TUT.card, document.querySelector(".tut-toast")].filter(Boolean);
+    // 教程用过的浮层（遮罩/说明卡/提示条/首次访问引导气泡）虽然已隐藏，也不应进入快照：临时摘出，序列化后放回
+    const tutNodes = [TUT.root, TUT.card, document.querySelector(".tut-coach"),
+      document.querySelector(".tut-toast")].filter(Boolean);
     tutNodes.forEach(n => { if (n.parentNode) n.parentNode.removeChild(n); });
+    // 教程入口按钮在快照里本来就是隐藏的，连「未看过」的呼吸/红点标记也一并摘掉，
+    // 让快照完全不含任何教程痕迹（否则万一样式被覆盖，接收方会看到一个闪烁的死按钮）。
+    const tutBtnEl = $("#tutBtn");
+    const tutBtnNew = !!(tutBtnEl && tutBtnEl.classList.contains("is-new"));
+    if (tutBtnNew) tutBtnEl.classList.remove("is-new");
     // 直接序列化当前页面：逻辑脚本已内联在页面中，无需 fetch，
     // 因此 https 与 file://（双击打开）都能生成可离线打开的自包含快照。
     let html = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
     tutNodes.forEach(n => document.body.appendChild(n));
+    if (tutBtnNew) tutBtnEl.classList.add("is-new");
     if (desenTog && desenAnchor && desenAnchor.parentNode) {
       desenAnchor.parentNode.replaceChild(desenTog, desenAnchor);
     }
@@ -2550,6 +2605,7 @@ function loadSnapshot(snap) {
   const fb = document.querySelector(".filebar"); if (fb) fb.classList.add("hidden");
   ["#exportDesenBtn", "#exportPlainBtn", "#snapshotDesenBtn", "#snapshotPlainBtn", "#tutBtn"]
     .forEach(s => { const el = $(s); if (el) el.classList.add("hidden"); });
+  tutHideCoach(false);   // 快照是只读分享件，不该出现「第一次使用？」引导气泡
   // 快照不提供「是否脱敏 / 脱敏方式」切换：脱敏口径已在生成时固化，
   // 新快照生成阶段就摘除了该控件，这里再兜底移除一次，保证旧快照打开后同样看不到这些按钮。
   document.querySelectorAll(".desen-tog").forEach(el => el.remove());
@@ -2649,6 +2705,7 @@ function demoRecordsDirect() {
 }
 
 const TUT = { on: false, i: 0, steps: [], target: null, snap: null, injected: false,
+              demoState: "", coach: null, coachTimer: 0,
               raf: 0, root: null, card: null, masks: null, ring: null, timer: 0 };
 
 function tutSetBox(el, x, y, w, h) {
@@ -2768,22 +2825,40 @@ function tutToast(msg) {
 }
 
 function tutSteps() {
-  const hasData = () => STORE.records.length > 0;
-  return [
+  // 说明卡正文 / 动作按钮都允许写成函数：进入该步时才求值，因此能反映「此刻」的真实数据状态。
+  // 之前这里是一段静态文案 + 一个「用示例数据演示」按钮 —— 用户一路点「下一步」就会跳过它，
+  // 后面十几步全都在讲一个空看板。现在示例数据由 tutEnsureDemoData() 自动补齐。
+  const demoLine = () => {
+    if (TUT.demoState === "ready") {
+      const nDrug = Object.keys(build_summary(STORE.records).by_drug || {}).length;
+      return `<br><span class="tut-muted">✅ 已为你加载一份<b>虚构示例数据</b>
+        （${STORE.records.length} 条 / ${nDrug} 个品种）—— 下面看到的每个数字都是它真实算出来的结果，
+        教程结束后会自动清空。</span>`;
+    }
+    if (TUT.demoState === "user") {
+      return `<br><span class="tut-muted">你已经有数据了，教程直接在你的数据上演示。</span>`;
+    }
+    if (TUT.demoState === "fail") {
+      return `<br><span style="color:#b91c1c">⚠️ 示例数据没能加载成功，请点下面的「重试加载示例数据」。</span>`;
+    }
+    return "";
+  };
+  const steps = [
     { sel: null, t: "欢迎使用随访数据看板",
       body: `这是一个<b>纯本地</b>工具：Excel 在你的浏览器里解析和计算，数据不会上传到任何服务器。<br>
         接下来约 1 分钟，我用一份<b>虚构的示例数据</b>带你把每个功能点一遍 —— 包括哪些地方可以点、
         以及<b>点完之后哪些数字会跟着变</b>。<br>
-        <span class="tut-muted">随时可按 Esc 退出。教程结束后示例数据会自动清空，不会混进你自己的数据。</span>` },
+        <span class="tut-muted">点「下一步」我就先把示例数据加载进来。
+        随时可按 Esc 退出；教程结束后示例数据会自动清空，不会混进你自己的数据。</span>` },
 
-    { sel: "#drop", t: "上传随访表：把表格拖进来",
-      body: `支持 .xls / .xlsx，可以一次选多个文件；<b>列名不需要事先统一</b>，表头会自动识别、映射成统一字段。<br>
-        选中文件后先进入「待分析」列表，再点「开始分析」才真正解析。
-        ${hasData() ? '<br><span class="tut-muted">你已经有数据了，直接点「下一步」继续即可。</span>' : ""}`,
-      acts: hasData() ? null : [{
-        label: "用示例数据演示", primary: true,
-        fn: async () => { await tutLoadDemo(); await tutGo(TUT.i + 1); },
-      }] },
+    { sel: "#drop", t: "上传入口：以后把你自己的表拖进来",
+      body: () => `这就是上传入口 —— 支持 .xls / .xlsx，可以一次选多个文件；
+        <b>列名不需要事先统一</b>，表头会自动识别、映射成统一字段。
+        选中文件后先进入「待分析」列表，再点「开始分析」才真正解析。${demoLine()}`,
+      acts: () => TUT.demoState === "fail" ? [{
+        label: "重试加载示例数据", primary: true,
+        fn: async () => { await tutEnsureDemoData(); await tutGo(TUT.i); },
+      }] : [] },
 
     { sel: ".filebar", t: "已加载的文件",
       body: `每个文件一个标签，标签后面是它贡献的记录数。可以多次加载多个文件，数据会自动合并去重。<br>
@@ -2856,6 +2931,10 @@ function tutSteps() {
         教程结束，示例数据会自动清空，你可以把自己的表拖进来试试。<br>
         <span class="tut-muted">以后想再看一遍，点标题右边的「使用方法教程」即可。</span>` },
   ];
+  // 除「欢迎」外，每一步都在讲「已加载数据之后」的看板 —— 统一标记 needData：
+  // 任何一步在无数据状态下进入（键盘 ←/→ 跳步、或数据被清空）都会先自动补上示例数据，
+  // 从根上杜绝「整屏只有上传框、看不到任何功能」的空教程。
+  return steps.map((s, k) => (k >= 1 ? Object.assign({ needData: true }, s) : s));
 }
 
 async function tutGo(i) {
@@ -2864,6 +2943,12 @@ async function tutGo(i) {
   if (i >= TUT.steps.length) return tutEnd("done");
   TUT.i = i;
   const st = TUT.steps[i];
+  // 自愈：这一步要在「有数据的看板」上讲解，但当前一条记录都没有 —— 先补上内置示例数据，
+  // 否则聚光灯会框在一个空的看板上（这正是此前教程看起来"只有上传按钮"的原因）。
+  if (st.needData && !STORE.records.length) {
+    try { await tutEnsureDemoData(); } catch (e) { console.warn("示例数据准备失败", e); }
+    try { TUT.steps = tutSteps(); } catch (_) {}   // 重新求值，让文案带上最新数据量
+  }
   if (typeof st.before === "function") {
     try { await st.before(); } catch (e) { console.warn("教程步骤预处理失败", e); }
   }
@@ -2874,12 +2959,14 @@ async function tutGo(i) {
   const c = TUT.card;
   c.querySelector(".tut-step").textContent = "第 " + (i + 1) + " / " + TUT.steps.length + " 步";
   c.querySelector(".tut-title").textContent = st.t;
-  c.querySelector(".tut-body").innerHTML = st.body || "";
+  c.querySelector(".tut-body").innerHTML =
+    (typeof st.body === "function" ? st.body() : (st.body || ""));
   const acts = c.querySelector(".tut-acts");
   acts.innerHTML = "";
-  if (st.acts && st.acts.length) {
+  const actList = (typeof st.acts === "function" ? st.acts() : st.acts) || [];
+  if (actList.length) {
     acts.classList.remove("hidden");
-    st.acts.forEach(a => {
+    actList.forEach(a => {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "tut-actbtn" + (a.primary ? " primary" : "");
@@ -2931,16 +3018,37 @@ async function tutRestoreState() {
   syncViewBtns();
   await refresh();
 }
+// 生成并解析内置示例数据。返回是否成功（不再弹 alert：教程里自动加载时打断体验，
+// 失败由调用方在说明卡里以「重试」按钮呈现）。
 async function tutLoadDemo() {
   showLoading("正在生成示例数据并解析…");
+  let ok = false;
   try {
     const n = await ingestFiles([buildDemoFile()], { tutorial: true });
-    if (!n) { alert("示例数据生成失败，请改用你自己的 Excel 文件。"); return; }
-    TUT.injected = true;
+    ok = !!n;
+    if (ok) TUT.injected = true;
   } finally {
     hideLoading();
   }
-  await new Promise(r => setTimeout(r, 120));
+  if (ok) await new Promise(r => setTimeout(r, 120));
+  return ok;
+}
+
+// 教程必须「有数据」才有内容可讲：没有任何数据时自动补上内置示例数据。
+// 用户自己已经加载过数据时**绝不注入**（教程直接跑在他的真实数据上）。
+// 返回值写入 TUT.demoState，供说明卡动态渲染：ready=已加载示例 / user=用户自有数据 / fail=失败
+async function tutEnsureDemoData() {
+  if (STORE.records.length) return (TUT.demoState = "user");
+  if (TUT.injected) return (TUT.demoState = "ready");
+  try {
+    await tutLoadDemo();
+    TUT.demoState = TUT.injected ? "ready" : "fail";
+  } catch (e) {
+    console.warn("示例数据加载失败", e);
+    TUT.demoState = "fail";
+  }
+  if (TUT.demoState === "fail") console.warn("教程示例数据不可用，将退化为无数据的讲解");
+  return TUT.demoState;
 }
 async function tutClearDemo() {
   if (!TUT.injected) return false;
@@ -2965,8 +3073,11 @@ async function tutClearDemo() {
 async function tutStart() {
   tutEnsureDom();
   closeAllPopovers();
+  tutHideCoach(true);       // 教程一开始就收起引导气泡，并记为「已看过」，不再重复打扰
   TUT.snap = tutSnapshotState();
   TUT.injected = false;
+  // 已有数据 → 教程直接跑在用户自己的数据上（绝不注入示例数据）；没有数据 → 进入第 2 步时自动补上
+  TUT.demoState = STORE.records.length ? "user" : "";
   TUT.steps = tutSteps();
   TUT.on = true;
   await tutGo(0);
@@ -2986,9 +3097,85 @@ async function tutEnd(reason) {
     if (cleared) { try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch (_) {} }
   }
 }
+/* ===== 教程入口的「可发现性」：首次访问引导气泡（coach mark） =====
+   按钮上只写「使用方法教程」，用户仍不知道点了会发生什么。按成熟的 onboarding 做法：
+   1) 按钮本身换成「▶ 播放图标 + 时长副标签」的通用语汇（▶ = 开始一段引导）；
+   2) 首次访问且还没有数据时，在按钮下方弹一个锚定小气泡，写清楚点击后会怎样，
+      给「开始教程 / 以后再说」两个出口；看过一次后写入 localStorage，不再打扰。 */
+const TUT_SEEN_KEY = "followup_dashboard_tut_seen_v1";
+function lsHas(k) { try { return !!localStorage.getItem(k); } catch (_) { return false; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (_) {} }
+function markTutSeen() {
+  lsSet(TUT_SEEN_KEY, "1");
+  const btn = $("#tutBtn");
+  if (btn) btn.classList.remove("is-new");
+}
+
+function tutBuildCoach() {
+  if (TUT.coach) return TUT.coach;
+  const el = document.createElement("div");
+  el.className = "tut-coach hidden";
+  el.setAttribute("role", "dialog");
+  el.innerHTML =
+    '<h4><span class="dot"></span>第一次使用？</h4>' +
+    '<p>用一份<b>虚构示例数据</b>做 60 秒动画引导：上传、筛选、图表、导出 —— ' +
+      '每一步都用聚光灯框出位置，并说明点它之后<b>哪些数字会跟着变</b>。</p>' +
+    '<div class="tut-coach-btns">' +
+      '<button class="tut-coach-go" type="button">▶ 开始教程</button>' +
+      '<button class="tut-coach-later" type="button">以后再说</button>' +
+    '</div>';
+  document.body.appendChild(el);
+  el.querySelector(".tut-coach-go").onclick = () => { tutHideCoach(true); tutStart(); };
+  el.querySelector(".tut-coach-later").onclick = () => { tutHideCoach(true); markTutSeen(); };
+  TUT.coach = el;
+  return el;
+}
+
+function tutPlaceCoach() {
+  const btn = $("#tutBtn"), el = TUT.coach;
+  if (!btn || !el) return;
+  const r = btn.getBoundingClientRect();
+  const w = el.offsetWidth || 296;
+  el.style.left = Math.max(12, Math.min(r.left, window.innerWidth - w - 12)) + "px";
+  el.style.top = (r.bottom + 12) + "px";
+}
+
+// sticky=true 表示「用户已经知道这个入口了」，顺带记为已看过
+function tutHideCoach(sticky) {
+  if (TUT.coachTimer) { clearTimeout(TUT.coachTimer); TUT.coachTimer = 0; }
+  if (TUT.coach) { TUT.coach.classList.remove("on"); TUT.coach.classList.add("hidden"); }
+  if (sticky) markTutSeen();
+}
+
+function tutMaybePrompt() {
+  TUT.coachTimer = 0;
+  // 只在「第一次来、还没有数据、不在快照里」时提示；已经在用工具的人不打扰
+  if (SNAP_MODE || TUT.on || lsHas(TUT_SEEN_KEY) || STORE.records.length) return;
+  const btn = $("#tutBtn");
+  if (!btn || btn.classList.contains("hidden")) return;
+  btn.classList.add("is-new");
+  const el = tutBuildCoach();
+  tutPlaceCoach();
+  el.classList.remove("hidden");
+  requestAnimationFrame(() => el.classList.add("on"));
+}
+
+function scheduleCoachPrompt() {
+  if (TUT.coachTimer) return;
+  TUT.coachTimer = setTimeout(tutMaybePrompt, 900);
+}
+if (document.readyState === "complete") scheduleCoachPrompt();
+else window.addEventListener("load", scheduleCoachPrompt);
+
 $("#tutBtn").onclick = () => { if (TUT.on) { tutEnd("close"); } else { tutStart(); } };
+window.addEventListener("resize", () => {
+  if (TUT.coach && !TUT.coach.classList.contains("hidden")) tutPlaceCoach();
+});
 document.addEventListener("keydown", e => {
-  if (!TUT.on) return;
+  if (!TUT.on) {
+    if (e.key === "Escape" && TUT.coach && !TUT.coach.classList.contains("hidden")) tutHideCoach(true);
+    return;
+  }
   if (e.key === "Escape") { e.preventDefault(); tutEnd("close"); }
   else if (e.key === "ArrowRight" || e.key === "Enter") { e.preventDefault(); tutGo(TUT.i + 1); }
   else if (e.key === "ArrowLeft") { e.preventDefault(); tutGo(TUT.i - 1); }
@@ -2996,7 +3183,8 @@ document.addEventListener("keydown", e => {
 
 // 调试/测试用：暴露核心计算与快照接口
 window.AppCore = { loadSnapshot, build_summary, filter_records, patientsAgg, summaryLocal, STORE,
-  tutStart, tutGo, tutEnd, tutLoadDemo, tutClearDemo, TUT,
+  tutStart, tutGo, tutEnd, tutLoadDemo, tutEnsureDemoData, tutClearDemo, tutMaybePrompt, tutHideCoach,
+  TUT, TUT_SEEN_KEY,
   buildDemoFile, demoRows, demoRecordsDirect, DEMO_HEADERS, DEMO_FILE };
 })();
 
