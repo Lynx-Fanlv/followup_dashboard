@@ -1000,9 +1000,23 @@ async function doSnapshot(desen) {
       if(window.__SNAP__&&window.AppCore){window.AppCore.loadSnapshot(window.__SNAP__);}
       else{var ld=document.getElementById('loading');if(ld){ld.querySelector('.txt').textContent='快照加载失败：脚本未内联。请用网页版（index.html）生成快照，不要用 index.template.html。';ld.classList.remove('hidden');}}
     })();<\/script>`;
+    // 快照里不再提供「姓名 / 电话 是否脱敏」的切换按钮：
+    // 脱敏与否在生成那一刻已经固化进数据，快照期内再切换既无意义（脱敏快照的原始姓名根本没写进文件，
+    // 切「不脱敏」也只能看到掩码），又容易让接收方误解数据口径。
+    // 这里在序列化前把该控件从 DOM 临时摘除，使它既不进入快照 HTML、也不留下可被取消隐藏的死按钮；
+    // 序列化完成后立刻原位还原，不影响当前页面。
+    const desenTog = document.querySelector(".desen-tog");
+    let desenAnchor = null;
+    if (desenTog && desenTog.parentNode) {
+      desenAnchor = document.createComment("desen-tog-removed-in-snapshot");
+      desenTog.parentNode.replaceChild(desenAnchor, desenTog);
+    }
     // 直接序列化当前页面：逻辑脚本已内联在页面中，无需 fetch，
     // 因此 https 与 file://（双击打开）都能生成可离线打开的自包含快照。
     let html = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+    if (desenTog && desenAnchor && desenAnchor.parentNode) {
+      desenAnchor.parentNode.replaceChild(desenTog, desenAnchor);
+    }
     // 快照为只读视图，不需要 xlsx / exceljs 库；剥离外链，避免 file:// 下加载失败
     html = html.replace('<' + 'script src="vendor/xlsx.full.min.js"></sc' + 'ript>', "");
     html = html.replace('<' + 'script src="vendor/exceljs.min.js"></sc' + 'ript>', "");
@@ -1048,9 +1062,9 @@ function loadSnapshot(snap) {
   // 快照为只读分享件：隐藏上传、文件管理、导出、再次快照等按钮
   const fb = document.querySelector(".filebar"); if (fb) fb.classList.add("hidden");
   ["#exportDesenBtn", "#exportPlainBtn", "#snapshotDesenBtn", "#snapshotPlainBtn"].forEach(s => $(s).classList.add("hidden"));
-  if (snap.desen) {
-    document.querySelectorAll('.dt-btn[data-mode="plain"]').forEach(b => b.disabled = true);
-  }
+  // 快照不提供「是否脱敏 / 脱敏方式」切换：脱敏口径已在生成时固化，
+  // 新快照生成阶段就摘除了该控件，这里再兜底移除一次，保证旧快照打开后同样看不到这些按钮。
+  document.querySelectorAll(".desen-tog").forEach(el => el.remove());
   CURRENT.global = build_summary(STORE.records);
   renderGlobal(CURRENT.global);
   $("#board").classList.remove("hidden");
