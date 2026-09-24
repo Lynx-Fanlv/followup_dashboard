@@ -85,6 +85,7 @@
     border-radius:12px;padding:12px 14px;text-align:left}
   .pending .p-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
   .pending .p-head b{font-size:13px;color:var(--brand)}
+  .pending .p-tip{font-size:12px;color:var(--muted);margin:-2px 0 10px;line-height:1.5}
   .pending .p-list{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
   /* 文件管理 */
   .filebar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--panel);
@@ -345,7 +346,7 @@
     box-shadow:0 0 0 2px rgba(255,255,255,.92),0 0 0 5px rgba(59,91,219,.55);
     transition:left .2s ease,top .2s ease,width .2s ease,height .2s ease}
   .tut-card{position:fixed;z-index:92;background:#fff;border:1px solid var(--line);border-radius:14px;
-    padding:16px 18px 14px;width:400px;max-width:calc(100vw - 32px);
+    padding:15px 17px 13px;width:344px;max-width:calc(100vw - 32px);
     box-shadow:0 18px 50px rgba(15,23,42,.32)}
   .tut-card.hidden{display:none}
   .tut-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
@@ -355,7 +356,7 @@
   .tut-x{border:none;background:transparent;color:var(--muted);font-size:15px;cursor:pointer;
     padding:0 2px;line-height:1}
   .tut-x:hover{color:var(--bad)}
-  .tut-body{font-size:13px;color:#374151;line-height:1.75}
+  .tut-body{font-size:13px;color:#374151;line-height:1.7}
   .tut-body b{color:var(--brand)}
   .tut-body ul{margin:6px 0 0;padding-left:18px}
   .tut-body li{margin:2px 0}
@@ -409,7 +410,8 @@
 <div class="wrap">
   <div class="upload" id="drop">
     <h3>拖入表格，或点击选择</h3>
-    <p>支持同时选择多个 Excel 文件（.xls / .xlsx）；表头自动识别归一化。选择后请点「开始分析」。</p>
+    <p><b>可以同时导入多个文件</b>（.xls / .xlsx）。不同结构、不同模板的随访表会被自动整合处理，
+      表头自动识别归一化 —— 不需要事先把格式统一。选择后请点「开始分析」。</p>
     <button class="btn" id="pickBtn">选择文件</button>
     <input type="file" id="fileInput" accept=".xls,.xlsx" multiple>
   </div>
@@ -417,6 +419,7 @@
   <!-- 待分析文件区 -->
   <div class="pending hidden" id="pendingArea">
     <div class="p-head"><b>已选择待分析文件</b><span class="hint" id="pendingCount"></span></div>
+    <div class="p-tip">可以继续添加文件；<b>不同结构的随访数据会整合成一整套统一分析</b>，重复记录自动去重。</div>
     <div class="p-list" id="pendingList"></div>
     <div style="display:flex;gap:8px">
       <button class="btn" id="startBtn" disabled>开始分析</button>

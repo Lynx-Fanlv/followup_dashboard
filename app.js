@@ -1312,8 +1312,10 @@ function tutLayout() {
     TUT.ring.style.display = "none";
   }
   const card = TUT.card;
-  const cw = Math.min(400, vw - 32);
-  card.style.width = cw + "px";
+  // 宽度以 CSS 的 .tut-card 为唯一来源（含 max-width:calc(100vw - 32px) 的窄屏兜底），
+  // 这里只读取实际宽度用于定位 —— 之前写死 Math.min(400,…) 并内联 style.width，
+  // 会把 CSS 里的宽度改动静默盖掉，是个容易踩的坑。
+  const cw = card.offsetWidth || 344;
   const ch = card.offsetHeight || 240;
   let cx, cy;
   if (w && h) {
@@ -1365,110 +1367,74 @@ function tutToast(msg) {
 
 function tutSteps() {
   // 说明卡正文 / 动作按钮都允许写成函数：进入该步时才求值，因此能反映「此刻」的真实数据状态。
-  // 之前这里是一段静态文案 + 一个「用示例数据演示」按钮 —— 用户一路点「下一步」就会跳过它，
-  // 后面十几步全都在讲一个空看板。现在示例数据由 tutEnsureDemoData() 自动补齐。
+  // 文案原则（用户要求）：**一眼看完**。每步一句话，最多补半句；凡「能点」的地方
+  // 直接写「此处可以点击筛选」，不解释原理、不铺陈背景。
   const demoLine = () => {
     if (TUT.demoState === "ready") {
       const nDrug = Object.keys(build_summary(STORE.records).by_drug || {}).length;
-      return `<br><span class="tut-muted">✅ 已为你加载一份<b>虚构示例数据</b>
-        （${STORE.records.length} 条 / ${nDrug} 个品种）—— 下面看到的每个数字都是它真实算出来的结果，
-        教程结束后会自动清空。</span>`;
+      return `<br><span class="tut-muted">✅ 已为你加载示例数据（${STORE.records.length} 条 / ${nDrug} 品种），结束即清空。</span>`;
     }
     if (TUT.demoState === "user") {
-      return `<br><span class="tut-muted">你已经有数据了，教程直接在你的数据上演示。</span>`;
+      return `<br><span class="tut-muted">你已经有数据，教程直接在你的数据上演示。</span>`;
     }
     if (TUT.demoState === "fail") {
-      return `<br><span style="color:#b91c1c">⚠️ 示例数据没能加载成功，请点下面的「重试加载示例数据」。</span>`;
+      return `<br><span style="color:#b91c1c">⚠️ 示例数据加载失败，请点「重试加载示例数据」。</span>`;
     }
     return "";
   };
   const steps = [
     { sel: null, t: "欢迎使用随访数据看板",
-      body: `这是一个<b>纯本地</b>工具：Excel 在你的浏览器里解析和计算，数据不会上传到任何服务器。<br>
-        接下来约 1 分钟，我用一份<b>虚构的示例数据</b>带你把每个功能点一遍 —— 包括哪些地方可以点、
-        以及<b>点完之后哪些数字会跟着变</b>。<br>
-        <span class="tut-muted">点「下一步」我就先把示例数据加载进来。
-        随时可按 Esc 退出；教程结束后示例数据会自动清空，不会混进你自己的数据。</span>` },
+      body: `纯本地运行，数据不上传。<br>用一份<b>虚构示例数据</b>快速过一遍功能，Esc 可退出。` },
 
-    { sel: "#drop", t: "上传入口：以后把你自己的表拖进来",
-      body: () => `这就是上传入口 —— 支持 .xls / .xlsx，可以一次选多个文件；
-        <b>列名不需要事先统一</b>，表头会自动识别、映射成统一字段。
-        选中文件后先进入「待分析」列表，再点「开始分析」才真正解析。${demoLine()}`,
+    { sel: "#drop", t: "上传入口",
+      body: () => `拖入表格，或点「选择文件」。<br><b>可一次导入多个文件</b>，结构不同会自动整合。${demoLine()}`,
       acts: () => TUT.demoState === "fail" ? [{
         label: "重试加载示例数据", primary: true,
         fn: async () => { await tutEnsureDemoData(); await tutGo(TUT.i); },
       }] : [] },
 
     { sel: ".filebar", t: "已加载的文件",
-      body: `每个文件一个标签，标签后面是它贡献的记录数。可以多次加载多个文件，数据会自动合并去重。<br>
-        右侧「<b>清空全部</b>」一次性清空所有数据、回到上传界面。` },
+      body: `一个标签 = 一个文件及其记录数；右侧「清空全部」一键复位。` },
 
-    { sel: "#globalRow", t: "全局概览：这批数据整体长什么样",
-      body: `总记录数、四种用药状态的构成、数据来源、任务完成情况都在这里。<br>
-        注意「<b>其他</b>」这一态：它表示<b>没有足够的结构化数据可判定</b>的记录
-        （例如任务未执行 / 已取消 / 联系失败），而不是"另外一种用药状态"。` },
+    { sel: "#globalRow", t: "全局概览",
+      body: `这批数据的整体画像：总量、四态构成、来源、完成情况。` },
 
-    { sel: "#summary", t: "用药状态卡片：卡片本身就是按钮",
-      body: `点任意一张卡片 → 立刻按该状态筛选（可以多选叠加），再点一次取消。<br>
-        <b>点完之后页面上几乎所有数字都会跟着变</b>：上方图表、右侧各筛选项的计数、
-        下方明细表，以及导出和快照的内容。` },
+    { sel: "#summary", t: "用药状态卡片",
+      body: `此处可以点击筛选：点卡片按状态筛选，再点一次取消。` },
 
-    { sel: "#subtypeBar", t: "试一试：点选一张卡片会怎样",
+    { sel: "#subtypeBar", t: "点选后的联动",
       before: async () => {
         state.status = new Set(["不规范用药"]); state.subtype = null; state.page = 1;
         await refresh();
       },
-      body: `我已经替你点了「<b>不规范用药</b>」，注意三处变化：<br>
-        <ul><li>卡片变成选中态；上方图表、下方明细同时只剩这一部分；</li>
-        <li>这里多出一行「<b>不规范下钻</b>」，可以再按 <code>自行减量</code> / <code>医嘱减量</code> /
-            <code>延迟未按时用药</code> 等具体类型细分；</li>
-        <li>筛选栏下方会列出当前生效的全部筛选条件，方便核对。</li></ul>
-        <span class="tut-muted">下一步我会把它取消掉。</span>` },
+      body: `已替你点了「<b>不规范用药</b>」：卡片选中，图表与明细同步收窄，并多出一行细分类型。` },
 
-    { sel: ".charts", t: "图表区：四张卡里的条形都能点",
+    { sel: ".charts", t: "图表区",
       before: async () => { state.status = new Set(); state.subtype = null; state.page = 1; await refresh(); },
-      body: `用药状态占比（环形）、药品记录数、随访时间趋势、停药／减量根本原因。<br>
-        每张卡里的<b>条形</b>都是按钮：点一次筛选，再点一次取消 —— 和卡片一样，全页联动。` },
+      body: `此处可以点击筛选：每张卡里的<b>条形</b>都是按钮。` },
 
-    { sel: "#drugChart", t: "按品种筛选 —— 也是「只发某个品种」的办法",
-      body: `这里列出的是<b>全部品种</b>（放不下时可滚动），不是只显示前几名。<br>
-        点某一条 → 只看该药品。<br>
-        更实用的是：<b>快照按当前筛选范围导出</b> —— 先筛好某个品种再下载快照，
-        对方拿到的就只是这个品种的数据，文件名还会自动带上品种名。` },
+    { sel: "#drugChart", t: "按品种筛选",
+      body: `此处可以点击筛选：点品种只看该药品。<br>先筛好再下载快照，对方就只拿到这个品种。` },
 
-    { sel: "#reasonCard", t: "停药／减量根本原因：自由文本自动归类",
-      body: `原始原因列是自由填写的，几百种措辞各不相同，这里按 <b>13 个桶</b>自动归一化
-        （医嘱调整 / 自主调整 / 经济费用 / 联系失败 / 不良反应 …），点条形即可下钻。<br>
-        <b>统计口径</b>：只统计「任务状态 = 已完成」且确实填了根本原因的记录 ——
-        卡片脚注里写明了具体条数，方便和明细核对。` },
+    { sel: "#reasonCard", t: "停药／减量根本原因",
+      body: `此处可以点击筛选：自由填写的原因已自动归为 13 类，点条形下钻。` },
 
-    { sel: ".filterbar", t: "统一筛选栏：所有维度都能多选",
-      body: `搜索（患者 / 电话 / 药店 / 药品）、药品、药店、执行人、根本原因、时间范围。<br>
-        多个维度之间是「<b>且</b>」的关系；时间按<b>随访时间</b>筛选，起止两天都包含在内。<br>
-        最右侧是「清除筛选」，一键复位所有条件。` },
+    { sel: ".filterbar", t: "统一筛选栏",
+      body: `此处可以点击筛选：药品、药店、执行人、原因、时间，均可多选。` },
 
-    { sel: "#colPanel", t: "两种视角 + 自选列",
+    { sel: "#colPanel", t: "两种视角 + 列显隐",
       before: async () => { $("#colPanel").classList.remove("hidden"); },
-      body: `「<b>明细</b>」逐条记录、「<b>患者聚合</b>」把同一患者的多条记录合并起来看用药轨迹，随时切换。<br>
-        下面这块是「<b>列显隐</b>」：表格太宽时，只留下你关心的列。` },
+      body: `「明细 / 患者聚合」随时切换；下面可自选显示哪些列。` },
 
-    { sel: "#detailView", t: "明细表：点一行看结构化原文",
+    { sel: "#detailView", t: "明细表",
       before: async () => { $("#colPanel").classList.add("hidden"); },
-      body: `点任意一行会<b>展开该条记录的专项原文</b>（各项结构化字段的真实取值），
-        而不是让你去读随访小结的自由文本。<br>
-        表格可横向滚动，底部是分页和每页条数。` },
+      body: `点一行展开该条记录的结构化原文。` },
 
     { sel: ".fb-export", t: "导出与分享",
-      body: `<ul>
-        <li><b>导出脱敏 / 未脱敏明细</b>：生成带表头样式、按用药状态着色的 Excel（未脱敏需二次确认）。</li>
-        <li><b>下载脱敏 / 不脱敏快照</b>：生成一个<b>可离线打开的单文件网页</b>，
-            对方双击就能看，不用装任何环境。</li>
-        <li>快照按<b>当前筛选范围</b>导出，并在页面里写明数据范围；脱敏快照不含任何明文姓名和电话。</li></ul>` },
+      body: `导出 Excel 明细，或下载可离线打开的单文件网页快照（按当前筛选范围）。` },
 
-    { sel: null, t: "就到这里，记住一个口诀",
-      body: `<b>卡片、条形、下拉都能点；点完之后，所有数字都会跟着变。</b><br>
-        教程结束，示例数据会自动清空，你可以把自己的表拖进来试试。<br>
-        <span class="tut-muted">以后想再看一遍，点标题右边的「使用方法教程」即可。</span>` },
+    { sel: null, t: "记住了",
+      body: `<b>卡片、条形、下拉都能点，点完所有数字都会跟着变。</b>` },
   ];
   // 除「欢迎」外，每一步都在讲「已加载数据之后」的看板 —— 统一标记 needData：
   // 任何一步在无数据状态下进入（键盘 ←/→ 跳步、或数据被清空）都会先自动补上示例数据，
@@ -1657,8 +1623,7 @@ function tutBuildCoach() {
   el.setAttribute("role", "dialog");
   el.innerHTML =
     '<h4><span class="dot"></span>第一次使用？</h4>' +
-    '<p>用一份<b>虚构示例数据</b>做 60 秒动画引导：上传、筛选、图表、导出 —— ' +
-      '每一步都用聚光灯框出位置，并说明点它之后<b>哪些数字会跟着变</b>。</p>' +
+    '<p>用<b>虚构示例数据</b>带你快速过一遍全部功能，每一步用聚光灯框出位置。</p>' +
     '<div class="tut-coach-btns">' +
       '<button class="tut-coach-go" type="button">▶ 开始教程</button>' +
       '<button class="tut-coach-later" type="button">以后再说</button>' +
