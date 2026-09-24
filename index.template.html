@@ -20,8 +20,15 @@
        background:var(--bg);color:var(--text);font-size:14px;line-height:1.6}
   header{padding:18px 0;background:var(--panel);border-bottom:1px solid var(--line)}
   .head-inner{max-width:var(--wrap);margin:0 auto;padding:0 var(--pad-x)}
+  .head-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
   header h1{margin:0;font-size:18px;font-weight:600}
   header p{margin:4px 0 0;color:var(--muted);font-size:13px}
+  /* 「使用方法教程」入口按钮：紧贴标题右侧 */
+  .tut-open{background:var(--brand);color:#fff;border:none;border-radius:999px;
+    padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;
+    font-family:inherit;box-shadow:0 2px 8px rgba(59,91,219,.28);transition:.15s}
+  .tut-open:hover{background:#2f4ec0;transform:translateY(-1px)}
+  .tut-open.hidden{display:none}
   .wrap{max-width:var(--wrap);margin:0 auto;padding:20px var(--pad-x) 60px}
   .upload{border:2px dashed var(--line);border-radius:12px;background:var(--panel);
          padding:22px;text-align:center;transition:.15s}
@@ -272,7 +279,7 @@
   .modal-err{color:var(--bad);font-size:12px;min-height:16px;margin-top:6px}
   .modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
   /* 加载遮罩 */
-  #loading{position:fixed;inset:0;background:rgba(255,255,255,.82);display:flex;align-items:center;justify-content:center;z-index:80}
+  #loading{position:fixed;inset:0;background:rgba(255,255,255,.82);display:flex;align-items:center;justify-content:center;z-index:94}
   /* 关键修复:ID 选择器 #loading 的 display:flex 优先级高于 .hidden 的 display:none,
      会导致加载遮罩在默认 hidden 时仍显示并卡死页面。用 #loading.hidden 抬优先级盖回去。 */
   #loading.hidden{display:none}
@@ -289,12 +296,66 @@
   /* 快照内的「数据范围」说明（快照为筛选子集时显示） */
   .snap-banner .snap-scope{margin-top:5px;padding-top:5px;font-weight:600;
     border-top:1px dashed rgba(154,52,18,.35)}
+  /* ===== 使用方法教程：聚光灯引导 ===== */
+  /* 遮罩由 4 块拼成，中间留出「聚光区」。遮罩块本身可接收点击（防止误点页面），
+     聚光区不放任何元素 —— 所以被高亮的目标仍然可以被直接点选。 */
+  .tut-root{position:fixed;inset:0;z-index:90;pointer-events:none}
+  .tut-root.hidden{display:none}
+  .tut-mask{position:fixed;background:rgba(15,23,42,.62);pointer-events:auto;
+    transition:left .2s ease,top .2s ease,width .2s ease,height .2s ease}
+  .tut-ring{position:fixed;border-radius:10px;pointer-events:none;
+    box-shadow:0 0 0 2px rgba(255,255,255,.92),0 0 0 5px rgba(59,91,219,.55);
+    transition:left .2s ease,top .2s ease,width .2s ease,height .2s ease}
+  .tut-card{position:fixed;z-index:92;background:#fff;border:1px solid var(--line);border-radius:14px;
+    padding:16px 18px 14px;width:400px;max-width:calc(100vw - 32px);
+    box-shadow:0 18px 50px rgba(15,23,42,.32)}
+  .tut-card.hidden{display:none}
+  .tut-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .tut-step{font-size:11px;font-weight:700;color:var(--brand);background:var(--brand-soft);
+    border-radius:999px;padding:2px 9px;white-space:nowrap}
+  .tut-title{font-size:15px;flex:1;line-height:1.35}
+  .tut-x{border:none;background:transparent;color:var(--muted);font-size:15px;cursor:pointer;
+    padding:0 2px;line-height:1}
+  .tut-x:hover{color:var(--bad)}
+  .tut-body{font-size:13px;color:#374151;line-height:1.75}
+  .tut-body b{color:var(--brand)}
+  .tut-body ul{margin:6px 0 0;padding-left:18px}
+  .tut-body li{margin:2px 0}
+  .tut-muted{color:var(--muted);font-size:12px}
+  .tut-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .tut-acts.hidden{display:none}
+  .tut-actbtn{border:1px solid var(--brand);background:#fff;color:var(--brand);border-radius:8px;
+    padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+  .tut-actbtn.primary{background:var(--brand);color:#fff}
+  .tut-actbtn:disabled{opacity:.55;cursor:not-allowed}
+  .tut-foot{display:flex;align-items:center;gap:8px;margin-top:14px;
+    padding-top:10px;border-top:1px solid var(--line)}
+  .tut-dots{display:flex;gap:4px;flex-wrap:wrap;flex:1;max-width:132px}
+  .tut-dot{width:6px;height:6px;border-radius:50%;background:#dfe3e8}
+  .tut-dot.on{background:var(--brand);transform:scale(1.25)}
+  .tut-ctl{display:flex;align-items:center;gap:8px;margin-left:auto}
+  .tut-ctl button{border:1px solid var(--line);background:#fff;color:var(--text);border-radius:8px;
+    padding:6px 12px;font-size:13px;cursor:pointer;font-family:inherit}
+  .tut-ctl button:hover:not(:disabled){border-color:var(--brand);color:var(--brand)}
+  .tut-ctl button:disabled{opacity:.45;cursor:not-allowed}
+  .tut-ctl .tut-next{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+  .tut-ctl .tut-next:hover:not(:disabled){background:#2f4ec0;color:#fff}
+  .tut-skip{color:var(--muted);font-size:12px;cursor:pointer;margin-left:2px}
+  .tut-skip:hover{color:var(--bad);text-decoration:underline}
+  /* 教程结束后的轻提示 */
+  .tut-toast{position:fixed;left:50%;bottom:34px;transform:translateX(-50%);z-index:95;
+    background:#111827;color:#fff;border-radius:10px;padding:9px 18px;font-size:13px;
+    box-shadow:0 10px 30px rgba(0,0,0,.28);opacity:0;transition:opacity .25s}
+  .tut-toast.on{opacity:1}
 </style>
 </head>
 <body>
 <header>
   <div class="head-inner">
-  <h1>随访数据看板（纯本地版）</h1>
+  <div class="head-row">
+    <h1>随访数据看板（纯本地版）</h1>
+    <button class="tut-open" id="tutBtn" type="button" title="用一个虚构示例数据带你走一遍全部功能">使用方法教程</button>
+  </div>
   <p>上传 Excel → 点「开始分析」→ 自动归一化并展示。所有解析与计算均在你的浏览器内完成，数据不会上传到任何服务器。</p>
   </div>
 </header>

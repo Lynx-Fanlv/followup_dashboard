@@ -67,6 +67,7 @@ function download(blob, name) {
 function cleanRec(r) {
   const c = Object.assign({}, r);
   delete c.source_file; delete c._file_id; delete c._file_label; delete c._row_id;
+  delete c._tutorial;   // 教程注入的示例数据标记，不应写进快照
   return c;
 }
 
@@ -799,29 +800,42 @@ $("#clearPendingBtn").onclick = () => {
   $("#pendingArea").classList.add("hidden");
 };
 
+// 解析并并入一个或多个文件（上传按钮与教程共用同一条路径）
+// opts.tutorial = true 时给记录打标，教程结束时据此清理示例数据
+async function ingestFiles(files, opts) {
+  const tutorial = !!(opts && opts.tutorial);
+  let added = 0;
+  for (const f of files) {
+    STORE.seq++;
+    const fid = "f" + STORE.seq;
+    const recs = await window.Pipeline.processFiles([f]);
+    if (recs.length) {
+      recs.forEach(r => {
+        r._file_id = fid; r._file_label = f.name;
+        if (tutorial) r._tutorial = true;
+      });
+      STORE.records.push(...recs);
+      STORE.files.push({ id: fid, label: f.name, count: recs.length, _tutorial: tutorial || undefined });
+      added += recs.length;
+    }
+  }
+  CURRENT.global = build_summary(STORE.records);
+  renderGlobal(CURRENT.global);
+  renderFiles(STORE.files);
+  $("#board").classList.remove("hidden");
+  state.page = 1;
+  await refresh();
+  return added;
+}
+
 $("#startBtn").onclick = async () => {
   if (!pendingFiles.length) return;
   showLoading("正在解析 Excel 并归一化计算…");
   $("#startBtn").disabled = true;
   try {
-    for (const f of pendingFiles) {
-      STORE.seq++;
-      const fid = "f" + STORE.seq;
-      const recs = await window.Pipeline.processFiles([f]);
-      if (recs.length) {
-        recs.forEach(r => { r._file_id = fid; r._file_label = f.name; });
-        STORE.records.push(...recs);
-        STORE.files.push({ id: fid, label: f.name, count: recs.length });
-      }
-    }
+    await ingestFiles(pendingFiles);
     pendingFiles = [];
     renderPending();
-    CURRENT.global = build_summary(STORE.records);
-    renderGlobal(CURRENT.global);
-    renderFiles(STORE.files);
-    $("#board").classList.remove("hidden");
-    state.page = 1;
-    await refresh();
   } catch (err) {
     alert("分析失败：" + (err && err.message ? err.message : err));
   } finally {
@@ -1016,6 +1030,8 @@ const sanitizeFname = s => String(s).replace(RE_FNAME_BAD, "_");
 /* ============ 快照生成（自包含 HTML，可离线打开/分享） ============ */
 async function doSnapshot(desen) {
   if (!STORE.records.length) { alert("暂无数据可生成快照"); return; }
+  // 快照靠序列化当前页面实现：教程的遮罩/说明卡也会被一起序列化进去，必须先退出教程
+  if (TUT.on) await tutEnd("close");
   // 快照的数据范围 = 当前筛选结果（与「导出明细」同一套 filter_records，口径完全一致）。
   // 想「只发 A 品种给他人」，就在筛选栏选好 A 品种再点下载。
   const kw = currentKw();
@@ -1032,11 +1048,13 @@ async function doSnapshot(desen) {
   try {
     // 脱敏快照：写入文件的是「已脱敏」记录，原始 PII 不存在于文件中 → 无法还原 / 无法按全名检索。
     const records = (desen ? recs.map(r => window.Pipeline.desensitize(r)) : recs).map(cleanRec);
-    // 文件清单同步收窄：只保留真正贡献了这批记录的文件
+    // 文件清单同步收窄：只保留真正贡献了这批记录的文件；
+    // 只取 id/label/count 三个字段，避免把内部标记（如 _tutorial）写进快照
     const keepIds = new Set(recs.map(r => r._file_id));
     const snap = {
       desen, records, scope, buildAt: new Date().toISOString(),
-      files: (STORE.files || []).filter(f => keepIds.has(f.id)),
+      files: (STORE.files || []).filter(f => keepIds.has(f.id))
+        .map(f => ({ id: f.id, label: f.label, count: f.count })),
     };
     // 转义 JSON 中的尖括号，防止内联 HTML 时提前闭合 script 标签
     const dataJson = JSON.stringify(snap).replace(/</g, "\\u003c");
@@ -1056,9 +1074,13 @@ async function doSnapshot(desen) {
       desenAnchor = document.createComment("desen-tog-removed-in-snapshot");
       desenTog.parentNode.replaceChild(desenAnchor, desenTog);
     }
+    // 教程用过的浮层（遮罩/说明卡/提示条）虽然已隐藏，也不应进入快照：临时摘出，序列化后放回
+    const tutNodes = [TUT.root, TUT.card, document.querySelector(".tut-toast")].filter(Boolean);
+    tutNodes.forEach(n => { if (n.parentNode) n.parentNode.removeChild(n); });
     // 直接序列化当前页面：逻辑脚本已内联在页面中，无需 fetch，
     // 因此 https 与 file://（双击打开）都能生成可离线打开的自包含快照。
     let html = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+    tutNodes.forEach(n => document.body.appendChild(n));
     if (desenTog && desenAnchor && desenAnchor.parentNode) {
       desenAnchor.parentNode.replaceChild(desenTog, desenAnchor);
     }
@@ -1111,7 +1133,8 @@ function loadSnapshot(snap) {
     : "⚠️ 这是一份「不脱敏」快照：包含明文姓名、电话等个人信息，仅可分享给可信接收方。") + scopeHtml;
   // 快照为只读分享件：隐藏上传、文件管理、导出、再次快照等按钮
   const fb = document.querySelector(".filebar"); if (fb) fb.classList.add("hidden");
-  ["#exportDesenBtn", "#exportPlainBtn", "#snapshotDesenBtn", "#snapshotPlainBtn"].forEach(s => $(s).classList.add("hidden"));
+  ["#exportDesenBtn", "#exportPlainBtn", "#snapshotDesenBtn", "#snapshotPlainBtn", "#tutBtn"]
+    .forEach(s => { const el = $(s); if (el) el.classList.add("hidden"); });
   // 快照不提供「是否脱敏 / 脱敏方式」切换：脱敏口径已在生成时固化，
   // 新快照生成阶段就摘除了该控件，这里再兜底移除一次，保证旧快照打开后同样看不到这些按钮。
   document.querySelectorAll(".desen-tog").forEach(el => el.remove());
@@ -1122,6 +1145,442 @@ function loadSnapshot(snap) {
   refresh();
 }
 
+/* ============ 使用方法教程（聚光灯引导式 onboarding） ============ */
+// 素材是一份内置的「虚构」随访表，走与真实上传**完全相同**的解析路径
+//（SheetJS 生成 xlsx → File → Pipeline.processFiles），所以教程里看到的分布、
+//  状态判定、根本原因分桶都是真实算出来的，映射规则演进时教程不会失真。
+const DEMO_HEADERS = ["患者姓名", "联系电话", "药品名称", "适应症", "药店名称", "执行人",
+  "任务状态", "执行时间", "用药周期状态", "未按计划持续用药原因", "用药依从性", "备注"];
+const DEMO_SHEET = "入组随访（示例）";
+const DEMO_FILE = "示例数据_入组随访（虚构，仅供教程）.xlsx";
+const DEMO_DRUGS = ["百泽安", "百悦泽", "索托克拉"];
+const DEMO_PHARMS = ["阳光大药房（示例）", "康泰药房（示例）", "惠民药房（示例）"];
+const DEMO_EXECS = ["张护士", "李药师", "王随访"];
+const DEMO_INDICATIONS = ["非小细胞肺癌", "肝细胞癌", "尿路上皮癌", "套细胞淋巴瘤", "华氏巨球蛋白血症"];
+const DEMO_REMARKS = [
+  "患者询问下次复查时间，已告知",
+  "自述近期食欲一般，已建议复诊时反馈医生",
+  "",
+  "已提醒按时用药并做好记录",
+  "",
+  "家属代为接听，表示会按医嘱继续执行",
+];
+// 计划表：period 写入「用药周期状态」列（enrollment 来源的关键列），
+// reason 写入「未按计划持续用药原因」→ 会被自动归入 13 个根本原因分桶之一。
+function demoPlan() {
+  return [
+    { period: "按计划持续用药", n: 26, reason: "" },
+    { period: "减量用药", n: 4, reason: "患者自行减少用药剂量，自觉症状缓解" },
+    { period: "减量用药", n: 4, reason: "遵医嘱减量，因血象指标偏低" },
+    { period: "推迟购药", n: 4, reason: "未到用药时间，用药周期尚未开始" },
+    { period: "当期未复购", n: 4, reason: "患者自述购药不方便，家离门店较远" },
+    { period: "持续用药中--流失", n: 5, reason: "家属反馈多次联系不上患者" },
+    { period: "完全停用", n: 3, reason: "出现皮疹，患者不耐受而停药" },
+    { period: "当期随访确认脱落", n: 3, reason: "经济负担较重，暂时停止用药" },
+    { period: "停药----脱落", n: 2, reason: "病情稳定，已按疗程结束用药" },
+    { period: "停药----脱落", n: 2, reason: "复查提示疗效不佳，患者想更换方案" },
+    // 无「用药周期状态」取值 + 任务未执行 → 落到「其他」，用来演示「其他」的细分标注
+    { period: "", n: 3, reason: "", task: "待执行" },
+  ];
+}
+function demoRows() {
+  const rows = [];
+  let n = 0;
+  for (const p of demoPlan()) {
+    for (let k = 0; k < p.n; k++) {
+      n++;
+      const empty = !p.period;
+      const month = 7 + (n % 3);                 // 跨 7/8/9 三个月，趋势图有 3 个点
+      const day = 1 + ((n * 7) % 27);
+      const hh = 9 + (n % 8);
+      const date = `2026-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")} `
+        + `${String(hh).padStart(2, "0")}:${n % 2 ? "30" : "00"}`;
+      rows.push([
+        "示例患者" + String(n).padStart(2, "0"),
+        "138" + String(10000000 + n * 137).slice(-8),
+        DEMO_DRUGS[n % 3],
+        DEMO_INDICATIONS[n % 5],
+        DEMO_PHARMS[n % 3],
+        DEMO_EXECS[n % 3],
+        p.task || "已完成",
+        date,
+        p.period,
+        p.reason || "",
+        empty ? "" : (n % 3 === 0 ? "良好" : "一般"),
+        empty ? "" : DEMO_REMARKS[n % DEMO_REMARKS.length],
+      ]);
+    }
+  }
+  return rows;
+}
+// 生成一个真实的 .xlsx File 对象（教程里唯一需要外部库的地方）
+function buildDemoFile() {
+  const ws = XLSX.utils.aoa_to_sheet([DEMO_HEADERS].concat(demoRows()));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, DEMO_SHEET);
+  const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  return new File([buf], DEMO_FILE,
+    { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+// 不经 xlsx 往返、直接跑归一化（供自动化测试核对示例数据的分布，不参与页面流程）
+function demoRecordsDirect() {
+  const cols = DEMO_HEADERS.slice();
+  const rows = demoRows().map(r => {
+    const o = {};
+    for (let i = 0; i < r.length; i++) o[i] = window.Pipeline.cellStr(r[i]);
+    return o;
+  });
+  return window.Pipeline.normalizeRows(rows, cols, DEMO_FILE, DEMO_SHEET);
+}
+
+const TUT = { on: false, i: 0, steps: [], target: null, snap: null, injected: false,
+              raf: 0, root: null, card: null, masks: null, ring: null, timer: 0 };
+
+function tutSetBox(el, x, y, w, h) {
+  el.style.left = x + "px"; el.style.top = y + "px";
+  el.style.width = Math.max(0, w) + "px"; el.style.height = Math.max(0, h) + "px";
+}
+function tutEnsureDom() {
+  if (TUT.root) return;
+  const root = document.createElement("div");
+  root.className = "tut-root hidden";
+  ["t", "b", "l", "r"].forEach(k => {
+    const d = document.createElement("div");
+    d.className = "tut-mask"; d.dataset.k = k; root.appendChild(d);
+  });
+  const ring = document.createElement("div");
+  ring.className = "tut-ring"; root.appendChild(ring);
+  document.body.appendChild(root);
+
+  const card = document.createElement("div");
+  card.className = "tut-card hidden";
+  card.innerHTML =
+    '<div class="tut-head"><span class="tut-step"></span><b class="tut-title"></b>' +
+      '<button class="tut-x" type="button" title="退出教程">✕</button></div>' +
+    '<div class="tut-body"></div><div class="tut-acts hidden"></div>' +
+    '<div class="tut-foot"><span class="tut-dots"></span><span class="tut-ctl">' +
+      '<button class="tut-prev" type="button">上一步</button>' +
+      '<button class="tut-next" type="button">下一步</button>' +
+      '<a class="tut-skip">跳过教程</a></span></div>';
+  document.body.appendChild(card);
+
+  TUT.root = root; TUT.card = card; TUT.ring = ring;
+  TUT.masks = {};
+  ["t", "b", "l", "r"].forEach(k => { TUT.masks[k] = root.querySelector('[data-k="' + k + '"]'); });
+  card.querySelector(".tut-x").onclick = () => tutEnd("close");
+  card.querySelector(".tut-prev").onclick = () => tutGo(TUT.i - 1);
+  card.querySelector(".tut-next").onclick = () => tutGo(TUT.i + 1);
+  card.querySelector(".tut-skip").onclick = () => tutEnd("skip");
+}
+// 四块遮罩围出「聚光区」：区内不放置任何元素，所以高亮的目标仍可被直接点选
+function tutLayout() {
+  if (!TUT.on || !TUT.card) return;
+  const vw = window.innerWidth, vh = window.innerHeight, pad = 8;
+  const r = TUT.target ? TUT.target.getBoundingClientRect() : null;
+  let x = 0, y = 0, w = 0, h = 0;
+  if (r && r.width > 2 && r.height > 2) {
+    x = Math.max(0, r.left - pad);
+    y = Math.max(0, r.top - pad);
+    w = Math.min(vw, r.right + pad) - x;
+    h = Math.min(vh, r.bottom + pad) - y;
+    if (w < 8 || h < 8) { x = y = w = h = 0; }
+  }
+  const m = TUT.masks;
+  if (w && h) {
+    tutSetBox(m.t, 0, 0, vw, y);
+    tutSetBox(m.b, 0, y + h, vw, vh - (y + h));
+    tutSetBox(m.l, 0, y, x, h);
+    tutSetBox(m.r, x + w, y, vw - (x + w), h);
+    tutSetBox(TUT.ring, x, y, w, h);
+    TUT.ring.style.display = "";
+  } else {                                   // 无目标 / 目标不可见：整屏压暗
+    tutSetBox(m.t, 0, 0, vw, vh);
+    tutSetBox(m.b, 0, vh, 0, 0);
+    tutSetBox(m.l, 0, vh, 0, 0);
+    tutSetBox(m.r, 0, vh, 0, 0);
+    TUT.ring.style.display = "none";
+  }
+  const card = TUT.card;
+  const cw = Math.min(400, vw - 32);
+  card.style.width = cw + "px";
+  const ch = card.offsetHeight || 240;
+  let cx, cy;
+  if (w && h) {
+    cx = Math.min(Math.max(12, x), Math.max(12, vw - cw - 12));
+    if (y + h + 16 + ch <= vh - 10) cy = y + h + 16;              // 优先放下方
+    else if (y - 16 - ch >= 10) cy = y - 16 - ch;                 // 其次放上方
+    else cy = Math.max(10, Math.min(vh - ch - 10, (vh - ch) / 2)); // 都不够就居中
+  } else {
+    cx = Math.max(12, (vw - cw) / 2);
+    cy = Math.max(20, Math.min(vh - ch - 20, (vh - ch) / 2 - 40));
+  }
+  card.style.left = cx + "px";
+  card.style.top = cy + "px";
+}
+function tutSchedule() {
+  if (TUT.raf) return;
+  TUT.raf = requestAnimationFrame(() => { TUT.raf = 0; tutLayout(); });
+}
+// 平滑滚动可能被用户操作/布局变化打断，停在「目标刚好贴住视口边缘」的位置。
+// 这里用即时 scrollBy 做一次矫正（不再走动画，避免和正在进行的平滑滚动互相追赶）。
+function tutEnsureVisible() {
+  if (!TUT.on || !TUT.target) return;
+  const vh = window.innerHeight;
+  const r = TUT.target.getBoundingClientRect();
+  if (r.width < 2 || r.height < 2) return;
+  const margin = 96;
+  let dy = 0;
+  if (r.top < margin && r.bottom < vh - margin) dy = r.top - margin;
+  else if (r.bottom > vh - margin) dy = r.bottom - (vh - margin);
+  if (dy) {
+    const y0 = window.scrollY;
+    window.scrollBy(0, dy);
+    // 贴到文档顶/底后 scrollY 不再变化，说明已经到头，无需再纠
+    if (Math.abs(window.scrollY - y0) < 1) return;
+  }
+  tutLayout();
+}
+window.addEventListener("scroll", () => { if (TUT.on) tutSchedule(); }, true);
+window.addEventListener("resize", () => { if (TUT.on) tutLayout(); });
+
+function tutToast(msg) {
+  let el = document.querySelector(".tut-toast");
+  if (!el) { el = document.createElement("div"); el.className = "tut-toast"; document.body.appendChild(el); }
+  el.textContent = msg;
+  el.classList.add("on");
+  clearTimeout(TUT.timer);
+  TUT.timer = setTimeout(() => el.classList.remove("on"), 2800);
+}
+
+function tutSteps() {
+  const hasData = () => STORE.records.length > 0;
+  return [
+    { sel: null, t: "欢迎使用随访数据看板",
+      body: `这是一个<b>纯本地</b>工具：Excel 在你的浏览器里解析和计算，数据不会上传到任何服务器。<br>
+        接下来约 1 分钟，我用一份<b>虚构的示例数据</b>带你把每个功能点一遍 —— 包括哪些地方可以点、
+        以及<b>点完之后哪些数字会跟着变</b>。<br>
+        <span class="tut-muted">随时可按 Esc 退出。教程结束后示例数据会自动清空，不会混进你自己的数据。</span>` },
+
+    { sel: "#drop", t: "上传随访表：把表格拖进来",
+      body: `支持 .xls / .xlsx，可以一次选多个文件；<b>列名不需要事先统一</b>，表头会自动识别、映射成统一字段。<br>
+        选中文件后先进入「待分析」列表，再点「开始分析」才真正解析。
+        ${hasData() ? '<br><span class="tut-muted">你已经有数据了，直接点「下一步」继续即可。</span>' : ""}`,
+      acts: hasData() ? null : [{
+        label: "用示例数据演示", primary: true,
+        fn: async () => { await tutLoadDemo(); await tutGo(TUT.i + 1); },
+      }] },
+
+    { sel: ".filebar", t: "已加载的文件",
+      body: `每个文件一个标签，标签后面是它贡献的记录数。可以多次加载多个文件，数据会自动合并去重。<br>
+        右侧「<b>清空全部</b>」一次性清空所有数据、回到上传界面。` },
+
+    { sel: "#globalRow", t: "全局概览：这批数据整体长什么样",
+      body: `总记录数、四种用药状态的构成、数据来源、任务完成情况都在这里。<br>
+        注意「<b>其他</b>」这一态：它表示<b>没有足够的结构化数据可判定</b>的记录
+        （例如任务未执行 / 已取消 / 联系失败），而不是"另外一种用药状态"。` },
+
+    { sel: "#summary", t: "用药状态卡片：卡片本身就是按钮",
+      body: `点任意一张卡片 → 立刻按该状态筛选（可以多选叠加），再点一次取消。<br>
+        <b>点完之后页面上几乎所有数字都会跟着变</b>：上方图表、右侧各筛选项的计数、
+        下方明细表，以及导出和快照的内容。` },
+
+    { sel: "#subtypeBar", t: "试一试：点选一张卡片会怎样",
+      before: async () => {
+        state.status = new Set(["不规范用药"]); state.subtype = null; state.page = 1;
+        await refresh();
+      },
+      body: `我已经替你点了「<b>不规范用药</b>」，注意三处变化：<br>
+        <ul><li>卡片变成选中态；上方图表、下方明细同时只剩这一部分；</li>
+        <li>这里多出一行「<b>不规范下钻</b>」，可以再按 <code>自行减量</code> / <code>医嘱减量</code> /
+            <code>延迟未按时用药</code> 等具体类型细分；</li>
+        <li>筛选栏下方会列出当前生效的全部筛选条件，方便核对。</li></ul>
+        <span class="tut-muted">下一步我会把它取消掉。</span>` },
+
+    { sel: ".charts", t: "图表区：四张卡里的条形都能点",
+      before: async () => { state.status = new Set(); state.subtype = null; state.page = 1; await refresh(); },
+      body: `用药状态占比（环形）、药品记录数、随访时间趋势、停药／减量根本原因。<br>
+        每张卡里的<b>条形</b>都是按钮：点一次筛选，再点一次取消 —— 和卡片一样，全页联动。` },
+
+    { sel: "#drugChart", t: "按品种筛选 —— 也是「只发某个品种」的办法",
+      body: `这里列出的是<b>全部品种</b>（放不下时可滚动），不是只显示前几名。<br>
+        点某一条 → 只看该药品。<br>
+        更实用的是：<b>快照按当前筛选范围导出</b> —— 先筛好某个品种再下载快照，
+        对方拿到的就只是这个品种的数据，文件名还会自动带上品种名。` },
+
+    { sel: "#reasonCard", t: "停药／减量根本原因：自由文本自动归类",
+      body: `原始原因列是自由填写的，几百种措辞各不相同，这里按 <b>13 个桶</b>自动归一化
+        （医嘱调整 / 自主调整 / 经济费用 / 联系失败 / 不良反应 …），点条形即可下钻。<br>
+        <b>统计口径</b>：只统计「任务状态 = 已完成」且确实填了根本原因的记录 ——
+        卡片脚注里写明了具体条数，方便和明细核对。` },
+
+    { sel: ".filterbar", t: "统一筛选栏：所有维度都能多选",
+      body: `搜索（患者 / 电话 / 药店 / 药品）、药品、药店、执行人、根本原因、时间范围。<br>
+        多个维度之间是「<b>且</b>」的关系；时间按<b>随访时间</b>筛选，起止两天都包含在内。<br>
+        最右侧是「清除筛选」，一键复位所有条件。` },
+
+    { sel: "#colPanel", t: "两种视角 + 自选列",
+      before: async () => { $("#colPanel").classList.remove("hidden"); },
+      body: `「<b>明细</b>」逐条记录、「<b>患者聚合</b>」把同一患者的多条记录合并起来看用药轨迹，随时切换。<br>
+        下面这块是「<b>列显隐</b>」：表格太宽时，只留下你关心的列。` },
+
+    { sel: "#detailView", t: "明细表：点一行看结构化原文",
+      before: async () => { $("#colPanel").classList.add("hidden"); },
+      body: `点任意一行会<b>展开该条记录的专项原文</b>（各项结构化字段的真实取值），
+        而不是让你去读随访小结的自由文本。<br>
+        表格可横向滚动，底部是分页和每页条数。` },
+
+    { sel: ".fb-export", t: "导出与分享",
+      body: `<ul>
+        <li><b>导出脱敏 / 未脱敏明细</b>：生成带表头样式、按用药状态着色的 Excel（未脱敏需二次确认）。</li>
+        <li><b>下载脱敏 / 不脱敏快照</b>：生成一个<b>可离线打开的单文件网页</b>，
+            对方双击就能看，不用装任何环境。</li>
+        <li>快照按<b>当前筛选范围</b>导出，并在页面里写明数据范围；脱敏快照不含任何明文姓名和电话。</li></ul>` },
+
+    { sel: null, t: "就到这里，记住一个口诀",
+      body: `<b>卡片、条形、下拉都能点；点完之后，所有数字都会跟着变。</b><br>
+        教程结束，示例数据会自动清空，你可以把自己的表拖进来试试。<br>
+        <span class="tut-muted">以后想再看一遍，点标题右边的「使用方法教程」即可。</span>` },
+  ];
+}
+
+async function tutGo(i) {
+  if (!TUT.on) return;
+  if (i < 0) i = 0;
+  if (i >= TUT.steps.length) return tutEnd("done");
+  TUT.i = i;
+  const st = TUT.steps[i];
+  if (typeof st.before === "function") {
+    try { await st.before(); } catch (e) { console.warn("教程步骤预处理失败", e); }
+  }
+  TUT.target = st.sel ? document.querySelector(st.sel) : null;
+  if (TUT.target && typeof TUT.target.scrollIntoView === "function") {
+    try { TUT.target.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" }); } catch (_) {}
+  }
+  const c = TUT.card;
+  c.querySelector(".tut-step").textContent = "第 " + (i + 1) + " / " + TUT.steps.length + " 步";
+  c.querySelector(".tut-title").textContent = st.t;
+  c.querySelector(".tut-body").innerHTML = st.body || "";
+  const acts = c.querySelector(".tut-acts");
+  acts.innerHTML = "";
+  if (st.acts && st.acts.length) {
+    acts.classList.remove("hidden");
+    st.acts.forEach(a => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "tut-actbtn" + (a.primary ? " primary" : "");
+      b.textContent = a.label;
+      b.onclick = async () => {
+        const old = b.textContent;
+        b.disabled = true; b.textContent = "处理中…";
+        try { await a.fn(); }
+        catch (e) { alert("操作失败：" + (e && e.message ? e.message : e)); }
+        finally { if (b.isConnected) { b.disabled = false; b.textContent = old; } }
+      };
+      acts.appendChild(b);
+    });
+  } else {
+    acts.classList.add("hidden");
+  }
+  c.querySelector(".tut-dots").innerHTML =
+    TUT.steps.map((_, k) => '<i class="tut-dot' + (k === i ? " on" : "") + '"></i>').join("");
+  c.querySelector(".tut-prev").disabled = (i === 0);
+  c.querySelector(".tut-next").textContent = (i === TUT.steps.length - 1) ? "完成" : "下一步";
+  TUT.root.classList.remove("hidden");
+  c.classList.remove("hidden");
+  tutLayout();
+  // scrollIntoView 是平滑滚动，途中位置在变：多补几次布局，让聚光区跟住目标，
+  // 并在动画大致结束后做一次「别贴住视口边缘」的矫正。
+  [60, 180, 340].forEach(d => setTimeout(() => { if (TUT.on && TUT.i === i) tutLayout(); }, d));
+  [520, 760].forEach(d => setTimeout(() => { if (TUT.on && TUT.i === i) tutEnsureVisible(); }, d));
+}
+
+function tutSnapshotState() {
+  return {
+    status: [...state.status], subtype: state.subtype,
+    drugs: [...state.drugs], pharmacies: [...state.pharmacies],
+    executors: [...state.executors], reasons: [...state.reasons],
+    start: state.start, end: state.end, q: state.q, page: state.page, view: state.view,
+    search: $("#searchInput").value, sd: $("#startDate").value, ed: $("#endDate").value,
+  };
+}
+async function tutRestoreState() {
+  const s = TUT.snap;
+  if (!s) return;
+  state.status = new Set(s.status); state.subtype = s.subtype || null;
+  state.drugs = new Set(s.drugs); state.pharmacies = new Set(s.pharmacies);
+  state.executors = new Set(s.executors); state.reasons = new Set(s.reasons);
+  state.start = s.start; state.end = s.end; state.q = s.q;
+  state.page = s.page; state.view = s.view || "detail";
+  $("#searchInput").value = s.search; $("#startDate").value = s.sd; $("#endDate").value = s.ed;
+  $("#colPanel").classList.add("hidden");
+  syncViewBtns();
+  await refresh();
+}
+async function tutLoadDemo() {
+  showLoading("正在生成示例数据并解析…");
+  try {
+    const n = await ingestFiles([buildDemoFile()], { tutorial: true });
+    if (!n) { alert("示例数据生成失败，请改用你自己的 Excel 文件。"); return; }
+    TUT.injected = true;
+  } finally {
+    hideLoading();
+  }
+  await new Promise(r => setTimeout(r, 120));
+}
+async function tutClearDemo() {
+  if (!TUT.injected) return false;
+  TUT.injected = false;
+  if (!STORE.records.some(r => r._tutorial)) return false;
+  STORE.records = STORE.records.filter(r => !r._tutorial);
+  STORE.files = STORE.files.filter(f => !f._tutorial);
+  if (!STORE.records.length) {
+    STORE.seq = 0;
+    CURRENT = { summary: null, global: null };
+    DATA = { rows: [], patients: [] };
+    $("#board").classList.add("hidden");
+    $("#fileChips").innerHTML = "";
+  } else {
+    CURRENT.global = build_summary(STORE.records);
+    renderGlobal(CURRENT.global);
+    renderFiles(STORE.files);
+    await refresh();
+  }
+  return true;
+}
+async function tutStart() {
+  tutEnsureDom();
+  closeAllPopovers();
+  TUT.snap = tutSnapshotState();
+  TUT.injected = false;
+  TUT.steps = tutSteps();
+  TUT.on = true;
+  await tutGo(0);
+}
+async function tutEnd(reason) {
+  if (!TUT.on) return;
+  TUT.on = false;
+  TUT.target = null;
+  if (TUT.root) TUT.root.classList.add("hidden");
+  if (TUT.card) TUT.card.classList.add("hidden");
+  closeAllPopovers();
+  try { await tutRestoreState(); } catch (e) { console.warn(e); }
+  let cleared = false;
+  try { cleared = await tutClearDemo(); } catch (e) { console.warn(e); }
+  if (reason === "done") {
+    tutToast(cleared ? "教程结束 · 示例数据已清空" : "教程结束，随时可以再点标题右边的按钮重看");
+    if (cleared) { try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch (_) {} }
+  }
+}
+$("#tutBtn").onclick = () => { if (TUT.on) { tutEnd("close"); } else { tutStart(); } };
+document.addEventListener("keydown", e => {
+  if (!TUT.on) return;
+  if (e.key === "Escape") { e.preventDefault(); tutEnd("close"); }
+  else if (e.key === "ArrowRight" || e.key === "Enter") { e.preventDefault(); tutGo(TUT.i + 1); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); tutGo(TUT.i - 1); }
+});
+
 // 调试/测试用：暴露核心计算与快照接口
-window.AppCore = { loadSnapshot, build_summary, filter_records, patientsAgg, summaryLocal, STORE };
+window.AppCore = { loadSnapshot, build_summary, filter_records, patientsAgg, summaryLocal, STORE,
+  tutStart, tutGo, tutEnd, tutLoadDemo, tutClearDemo, TUT,
+  buildDemoFile, demoRows, demoRecordsDirect, DEMO_HEADERS, DEMO_FILE };
 })();
