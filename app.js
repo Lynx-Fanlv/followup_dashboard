@@ -589,6 +589,127 @@ function updateFilterInfo() {
   $("#filterInfo").textContent = parts.length ? ("筛选：" + parts.join(" · ")) : "";
 }
 
+/* ============ 分析小结（文字版，可一键复制） ============ */
+// 数据范围 = 当前筛选结果，与「导出明细」「下载快照」共用同一套 filter_records，口径完全一致。
+// 首行按「任务状态」拆分（已完成 / 脱落·改期）；
+// 每个品种自成一段，段内给出用药状态四态条数，并追加该品种「脱落停药」的根本原因分布
+// （与「停药／减量根本原因」卡片同口径：仅统计任务状态＝已完成，且剔除误入原因列的非停减描述）。
+const REPORT = { text: "" };
+
+// "2026-09-01" -> "2026.9.1"（正文里的日期按人读习惯去掉前导零）
+function fmtDotDate(d) {
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(String(d || ""));
+  return m ? (+m[1]) + "." + (+m[2]) + "." + (+m[3]) : "";
+}
+// 时间范围：优先用筛选栏的起止；缺一端时用数据实际边界补齐；完全无时间信息则返回空串
+function reportRange(recs, kw) {
+  const ds = recs.map(r => _extract_date(r.followup_time)).filter(Boolean).sort();
+  const lo = kw.start || ds[0] || "";
+  const hi = kw.end || ds[ds.length - 1] || "";
+  if (!lo && !hi) return "";
+  return fmtDotDate(lo || hi) + "-" + fmtDotDate(hi || lo);
+}
+// 单个品种段落
+function reportDrugBlock(drug, recs) {
+  const st = countBy(recs, r => r.medication_status);
+  const lines = [
+    "▍" + drug,
+    "共随访 " + recs.length + " 条，"
+      + TAXONOMY.map(s => s + " " + (st[s] || 0) + " 条").join("，") + "。",
+  ];
+  const drop = recs.filter(r => r.medication_status === "脱落停药");
+  if (drop.length) {
+    const counted = drop.filter(isReasonCounted);
+    const br = Object.entries(countBy(counted, r => r.reason_bucket))
+      .filter(([k]) => k)
+      .sort((a, b) => b[1] - a[1]);
+    const pair = ([k, v]) => k + " " + v + " 条";
+    if (!br.length) {
+      lines.push("其中脱落停药 " + drop.length + " 条，均未采集到原因。");
+    } else if (counted.length === drop.length) {
+      // 最常见的情形：脱落条数与已采集原因的条数相等，不必重复交代数量
+      lines.push("其中脱落停药原因：" + br.map(pair).join("，") + "。");
+    } else {
+      // 有缺口时明确写出分母，避免读者以为原因条数对不上是漏统计
+      lines.push("其中脱落停药 " + drop.length + " 条的原因（已采集到 " + counted.length + " 条）："
+        + br.map(pair).join("，") + "。");
+    }
+  }
+  return lines.join("\n");
+}
+function reportText(recs, kw) {
+  const total = recs.length;
+  const done = recs.filter(isDoneTask).length;
+  const range = reportRange(recs, kw);
+  const head = (range ? "【" + range + "】期间，" : "")
+    + "共计随访 " + total + " 条，其中已完成 " + done + " 条，脱落/改期 " + (total - done) + " 条。";
+  // 品种顺序：条数由多到少（同数量按名称稳定排序），便于横向对照
+  const groups = {};
+  for (const r of recs) {
+    const k = r.drug_product || "未知品种";
+    (groups[k] = groups[k] || []).push(r);
+  }
+  const blocks = Object.entries(groups)
+    .sort((a, b) => b[1].length - a[1].length || String(a[0]).localeCompare(String(b[0]), "zh"))
+    .map(([d, rs]) => reportDrugBlock(d, rs));
+  return [head].concat(blocks).join("\n\n");
+}
+function renderReport(recs, kw) {
+  const body = $("#reportBody");
+  if (!body) return;
+  const btn = $("#reportCopyBtn");
+  const empty = !recs.length;
+  REPORT.text = empty ? "" : reportText(recs, kw);
+  body.textContent = empty ? "当前筛选条件下没有记录，无法生成小结。" : REPORT.text;
+  body.classList.toggle("is-empty", empty);
+  if (btn) {
+    btn.disabled = empty;
+    btn.classList.remove("done");
+    btn.textContent = "一键复制";
+  }
+  const scope = $("#reportScope");
+  if (scope) {
+    const filtered = scopeLines(kw).length > 0;
+    scope.textContent = (filtered ? "基于当前筛选 · " : "基于全部数据 · ") + recs.length + " 条";
+    scope.classList.toggle("filtered", filtered);
+  }
+}
+// 复制到剪贴板：优先 Clipboard API；file:// 或旧内核下回退到临时 textarea + execCommand
+function copyToClipboard(text) {
+  const fallback = () => {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand && document.execCommand("copy");
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch (_) { return false; }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text).then(() => true, fallback);
+  }
+  return Promise.resolve(fallback());
+}
+function bindReportCopy() {
+  const btn = $("#reportCopyBtn");
+  if (!btn) return;
+  let timer = 0;
+  btn.onclick = async () => {
+    if (!REPORT.text) return;
+    const ok = await copyToClipboard(REPORT.text);
+    if (!ok) { alert("复制失败：浏览器拒绝了剪贴板访问，请手动选中文字复制。"); return; }
+    btn.classList.add("done");
+    btn.textContent = "已复制 ✓";
+    clearTimeout(timer);
+    timer = setTimeout(() => { btn.classList.remove("done"); btn.textContent = "一键复制"; }, 1600);
+  };
+}
+
 // 文件管理
 function renderFiles(files) {
   $("#fileChips").innerHTML = (files || []).map(f =>
@@ -750,9 +871,12 @@ async function refresh() {
   renderCurrentView();
 }
 async function loadSummary() {
-  CURRENT.summary = summaryLocal(currentKw());
+  const kw = currentKw();
+  CURRENT.summary = summaryLocal(kw);
   renderSummary(CURRENT.summary);
   renderCharts(CURRENT.summary);
+  // 小结同样是「当前筛选结果」的派生物，与明细/导出/快照同源
+  renderReport(filter_records(STORE.records, kw), kw);
 }
 async function fetchDetail() {
   const recs = filter_records(STORE.records, currentKw());
@@ -864,6 +988,7 @@ $("#clearBtn").onclick = () => {
 };
 $("#startDate").onchange = e => { state.start = e.target.value || null; state.page = 1; refresh(); };
 $("#endDate").onchange = e => { state.end = e.target.value || null; state.page = 1; refresh(); };
+bindReportCopy();   // 分析小结的「一键复制」
 let searchTimer = null;
 $("#searchInput").addEventListener("input", e => {
   clearTimeout(searchTimer);
@@ -1076,6 +1201,14 @@ async function doSnapshot(desen) {
       desenAnchor = document.createComment("desen-tog-removed-in-snapshot");
       desenTog.parentNode.replaceChild(desenAnchor, desenTog);
     }
+    // 快照不提供「分析小结」（用户明确要求）：小结是与生成时筛选范围绑定的派生物，
+    // 留在快照里会随接收方的筛选重新计算，容易被误读成生成方的原始口径 —— 序列化前整块摘除。
+    const reportEl = $("#reportCard");
+    let reportAnchor = null;
+    if (reportEl && reportEl.parentNode) {
+      reportAnchor = document.createComment("report-card-removed-in-snapshot");
+      reportEl.parentNode.replaceChild(reportAnchor, reportEl);
+    }
     // 教程用过的浮层（遮罩/说明卡/提示条/首次访问引导气泡）虽然已隐藏，也不应进入快照：临时摘出，序列化后放回
     const tutNodes = [TUT.root, TUT.card, document.querySelector(".tut-coach"),
       document.querySelector(".tut-toast")].filter(Boolean);
@@ -1092,6 +1225,9 @@ async function doSnapshot(desen) {
     if (tutBtnNew) tutBtnEl.classList.add("is-new");
     if (desenTog && desenAnchor && desenAnchor.parentNode) {
       desenAnchor.parentNode.replaceChild(desenTog, desenAnchor);
+    }
+    if (reportEl && reportAnchor && reportAnchor.parentNode) {
+      reportAnchor.parentNode.replaceChild(reportEl, reportAnchor);
     }
     // 快照为只读视图，不需要 xlsx / exceljs 库；剥离外链，避免 file:// 下加载失败
     html = html.replace('<' + 'script src="vendor/xlsx.full.min.js"></sc' + 'ript>', "");
@@ -1148,6 +1284,8 @@ function loadSnapshot(snap) {
   // 快照不提供「是否脱敏 / 脱敏方式」切换：脱敏口径已在生成时固化，
   // 新快照生成阶段就摘除了该控件，这里再兜底移除一次，保证旧快照打开后同样看不到这些按钮。
   document.querySelectorAll(".desen-tog").forEach(el => el.remove());
+  // 同理：快照是只读分享件，不提供「分析小结」（新快照生成时已摘除，这里兜底旧快照）
+  document.querySelectorAll("#reportCard").forEach(el => el.remove());
   CURRENT.global = build_summary(STORE.records);
   renderGlobal(CURRENT.global);
   $("#board").classList.remove("hidden");
@@ -1422,6 +1560,9 @@ function tutSteps() {
     { sel: ".filterbar", t: "统一筛选栏",
       body: `此处可以点击筛选：药品、药店、执行人、原因、时间，均可多选。` },
 
+    { sel: "#reportCard", t: "分析小结",
+      body: `此处可以一键复制：把当前筛选范围写成文字，按品种分段，直接粘进汇报。` },
+
     { sel: "#colPanel", t: "两种视角 + 列显隐",
       before: async () => { $("#colPanel").classList.remove("hidden"); },
       body: `「明细 / 患者聚合」随时切换；下面可自选显示哪些列。` },
@@ -1687,6 +1828,8 @@ document.addEventListener("keydown", e => {
 
 // 调试/测试用：暴露核心计算与快照接口
 window.AppCore = { loadSnapshot, build_summary, filter_records, patientsAgg, summaryLocal, STORE,
+  REPORT, reportText, reportDrugBlock, renderReport, copyToClipboard, currentKw,
+  refresh, renderGlobal, renderFiles,   // 供回归/截图脚本在无文件上传的情况下直接驱动页面
   tutStart, tutGo, tutEnd, tutLoadDemo, tutEnsureDemoData, tutClearDemo, tutMaybePrompt, tutHideCoach,
   TUT, TUT_SEEN_KEY,
   buildDemoFile, demoRows, demoRecordsDirect, DEMO_HEADERS, DEMO_FILE };

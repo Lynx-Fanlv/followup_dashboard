@@ -247,6 +247,20 @@
   .fs-label::before{content:"";width:4px;height:14px;border-radius:3px;background:var(--brand)}
   .fs-hint{font-size:12px;color:var(--muted);font-weight:400}
   .filterinfo{color:var(--muted);font-size:12px;margin:6px 2px 0}
+  /* 分析小结：把当前筛选范围的分析结果写成一段可直接粘贴的文字 + 一键复制 */
+  .report-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:14px 16px;margin:14px 0 4px}
+  .rc-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+  .rc-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--text)}
+  .rc-title::before{content:"";width:4px;height:14px;border-radius:3px;background:var(--brand)}
+  .rc-scope{font-size:12px;color:var(--muted)}
+  .rc-scope.filtered{color:var(--warn)}
+  .rc-head .spacer{flex:1}
+  .rc-copy{white-space:nowrap}
+  .rc-copy.done{background:var(--good);border-color:var(--good);color:#fff}
+  .rc-body{margin:0;font-family:inherit;font-size:13px;line-height:1.9;color:var(--text);
+    white-space:pre-wrap;word-break:break-word}
+  .rc-body.is-empty{color:var(--muted)}
   /* 明细头/视图切换/列显隐 */
   .detail-head{display:flex;align-items:center;gap:10px;margin:14px 0 8px}
   .view-toggle{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
@@ -508,6 +522,18 @@
     </div>
     </div>
     <div class="filterinfo" id="filterInfo"></div>
+
+    <!-- 分析小结：内容 = 当前筛选结果，可一键复制成纯文字（快照中不提供本功能） -->
+    <div class="report-card" id="reportCard">
+      <div class="rc-head">
+        <span class="rc-title">分析小结</span>
+        <span class="rc-scope" id="reportScope"></span>
+        <span class="spacer"></span>
+        <button class="btn sm rc-copy" id="reportCopyBtn" type="button" disabled
+          title="复制这段小结文字，可直接粘贴到汇报材料或聊天窗口">一键复制</button>
+      </div>
+      <pre class="rc-body" id="reportBody"></pre>
+    </div>
 
     <!-- 明细头 -->
     <div class="detail-head">
