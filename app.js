@@ -94,6 +94,8 @@ function countBy(arr, keyFn) {
 // 口径（用户确认）：只统计「任务状态＝已完成」的记录；并把误入原因列的正常用药描述
 //（reason_bucket = 非停减…）从分子分母中剔除，避免污染占比。
 const REASON_SKIP = "非停减（仍在用药／已购药）";
+// 口径说明：界面脚注与「根本原因」栏导出的 Excel 脚注共用同一句，避免两处文案各自漂移
+const REASON_META_NOTE = "仅统计任务状态为「已完成」的记录；「非停减（仍在用药／已购药）」类描述已剔除，不计入分子分母。";
 function isDoneTask(r) { return /已完成/.test(String(r.task_status || "")); }
 function isReasonCounted(r) {
   return isDoneTask(r) && r.reason_bucket && r.reason_bucket !== REASON_SKIP;
@@ -306,12 +308,13 @@ function renderSummary(d) {
   buildMs("drugMs", d.by_drug, state.drugs, "药品");
   buildMs("pharmMs", d.by_pharmacy, state.pharmacies, "药店");
   buildMs("execMs", d.by_executor, state.executors, "执行人");
-  buildMs("reasonMs", d.by_reason, state.reasons, "根本原因");
+  // 导出脚注带上口径：根本原因这一栏的分子分母与其它维度不同，脱离界面后必须能自解释
+  buildMs("reasonMs", d.by_reason, state.reasons, "根本原因", REASON_META_NOTE);
   renderSubtypeBar();
   updateFilterInfo();
 }
 
-function buildMs(msId, data, stateSet, label) {
+function buildMs(msId, data, stateSet, label, note) {
   const entries = Object.entries(data || {});
   const list = $("#" + msId + "List");
   list.innerHTML = entries.map(([k, v]) =>
@@ -338,7 +341,11 @@ function buildMs(msId, data, stateSet, label) {
   search.oninput = applyFilter;
   applyFilter();
   panel.querySelectorAll(".ms-act").forEach(a => a.onclick = () => {
-    if (a.dataset.act === "all") entries.forEach(([k]) => stateSet.add(k)); else stateSet.clear();
+    const act = a.dataset.act;
+    // 导出：数据源就是本面板渲染用的 data —— 界面显示多少、导出就是多少，口径天然一致。
+    // 不受面板内检索框影响（检索只用于快速定位；让它改变导出结果会让人误判为「只有这几条」）。
+    if (act === "export") { doFacetExport(label, data, note); return; }
+    if (act === "all") entries.forEach(([k]) => stateSet.add(k)); else stateSet.clear();
     state.page = 1; refresh();
   });
   const n = stateSet.size, tot = entries.length;
@@ -517,7 +524,7 @@ function renderReasonChart(d) {
     const pending = (m.withReason || 0) - (m.counted || 0) - (m.skipped || 0);
     if (pending > 0) bits.push(`未计入未完成 ${pending}`);
     foot.textContent = bits.join(" · ");
-    foot.title = "仅统计任务状态为「已完成」的记录；「非停减（仍在用药／已购药）」类描述已剔除，不计入分子分母。";
+    foot.title = REASON_META_NOTE;
   }
   el.querySelectorAll(".bar-row.clickable").forEach(row => {
     row.onclick = () => {
@@ -712,6 +719,49 @@ function reportText(recs, kw, sel) {
     .map(([d, rs]) => reportDrugBlock(d, rs));
   return [head].concat(blocks).join("\n\n");
 }
+/* ---- 小结正文限高（约「首行 + 2 个品种段」的高度，超出滚动） ----
+   用实测高度而不是写死像素：品种段行数随「原因分布」长短在 1~4 行之间变化，
+   写死会出现「露出半个第 3 段」或「只装得下 1 个品种」两种都不好看的结果。
+   布局不可用时（jsdom / 元素不可见）测不出高度 → 返回 0，保留 CSS 里的兜底 max-height。 */
+const RC_BLOCKS_SHOWN = 2;
+function measureTextOffsetTop(root, offset) {
+  if (!root || offset <= 0) return 0;
+  // 无布局环境（jsdom 的 Range 就没有 getClientRects）会直接抛错 —— 一律当"测不出"处理，
+  // 由 clampReportBody 回落到 CSS 里的兜底 max-height，而不是把 refresh() 整条链带崩。
+  try {
+    const walker = document.createTreeWalker(root, 4 /* SHOW_TEXT */);
+    let acc = 0, node;
+    while ((node = walker.nextNode())) {
+      const len = node.nodeValue.length;
+      if (acc + len >= offset) {
+        const r = document.createRange();
+        r.setStart(root, 0);
+        r.setEnd(node, Math.max(1, offset - acc));
+        const rects = r.getClientRects();
+        if (!rects || !rects.length) return 0;
+        return Math.ceil(rects[rects.length - 1].bottom - root.getBoundingClientRect().top);
+      }
+      acc += len;
+    }
+  } catch (e) { return 0; }
+  return 0;
+}
+function clampReportBody(body) {
+  if (!body) return;
+  const paras = (body.textContent || "").split("\n\n");
+  // 段落本来就少（首行 + ≤2 段）→ 完全展开，不留滚动条
+  if (paras.length <= RC_BLOCKS_SHOWN + 1) { body.style.maxHeight = "none"; return; }
+  const off = paras.slice(0, RC_BLOCKS_SHOWN + 1).join("\n\n").length;
+  const h = measureTextOffsetTop(body, off);
+  body.style.maxHeight = h > 0 ? h + "px" : "";   // 测不出就交回 CSS 兜底
+}
+// 窗口尺寸变化会改变折行数（进而改变「两段」的真实高度），去抖后重算
+let _rcClampTimer = 0;
+window.addEventListener("resize", () => {
+  clearTimeout(_rcClampTimer);
+  _rcClampTimer = setTimeout(() => clampReportBody($("#reportBody")), 150);
+});
+
 function renderReport(recs, kw) {
   const body = $("#reportBody");
   if (!body) return;
@@ -735,6 +785,7 @@ function renderReport(recs, kw) {
   }
   body.classList.toggle("is-empty", noData);
   body.classList.toggle("is-demo", demo);
+  clampReportBody(body);
   if (btn) {
     btn.disabled = noData || demo;
     btn.title = stale ? "已选品种在当前筛选下没有记录，请放宽筛选条件或改选品种，再复制"
@@ -1243,6 +1294,84 @@ async function doExport(desen) {
   XLSX.utils.book_append_sheet(wb2, ws2, "随访明细");
   const out = XLSX.write(wb2, { bookType: "xlsx", type: "array" });
   download(new Blob([out], { type: mime }), fname);
+}
+/* ---- 筛选栏「导出」：把某个筛选维度的分布导成 Excel ----
+   与「导出明细」的区别：那个导逐条记录，这个导该维度的统计分布（值 + 记录数 + 占比）。
+   数据源＝面板渲染用的同一份 data，「界面显示多少、导出就是多少」，口径天然不会漂。 */
+function facetRows(data) {
+  // 统计报表惯例：按记录数降序（同数量按名称），免得导出后还要手工排一遍
+  return Object.entries(data || {})
+    .map(([k, v]) => [k, v])
+    .sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), "zh"));
+}
+function facetFileName(label) {
+  const d = new Date();
+  const ymd = d.getFullYear() + String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0");
+  const tag = scopeFileTag(currentKw());
+  return sanitizeFname(label + "统计" + (tag ? "_" + tag.join("+") : "") + "_" + ymd) + ".xlsx";
+}
+async function doFacetExport(label, data, note) {
+  const rows = facetRows(data);
+  if (!rows.length) { alert("当前筛选下没有可导出的内容"); return; }
+  const kw = currentKw();
+  const sum = rows.reduce((a, [, v]) => a + v, 0);
+  const head = [label, "记录数", "占比"];
+  const mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  // 脚注把「统计范围」与该维度的特殊口径写进文件本身——导出的表往往会被转发给看不到界面的人
+  const notes = ["统计范围：" + (scopeLines(kw).join("；") || "全部数据（未设筛选）")];
+  if (note) notes.push("口径：" + note);
+  try {
+    // 首选 ExcelJS：表头加粗+底色+冻结首行，数值右对齐、占比用百分比格式
+    if (window.ExcelJS) {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet(String(label).slice(0, 31));
+      ws.addRow(head);
+      const hrow = ws.getRow(1);
+      hrow.height = 20;
+      hrow.eachCell(c => {
+        c.font = { bold: true, color: { argb: "FF1F2937" } };
+        c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9E1F2" } };
+        c.alignment = { horizontal: "center", vertical: "middle" };
+        c.border = { bottom: { style: "thin", color: { argb: "FFB0BEC5" } } };
+      });
+      ws.views = [{ state: "frozen", ySplit: 1 }];
+      for (const [k, v] of rows) {
+        const r = ws.addRow([k, v, sum ? v / sum : 0]);
+        r.getCell(2).alignment = { horizontal: "right" };
+        r.getCell(3).numFmt = "0.0%";
+        r.getCell(3).alignment = { horizontal: "right" };
+      }
+      const tr = ws.addRow(["合计", sum, 1]);
+      tr.font = { bold: true };
+      tr.getCell(2).alignment = { horizontal: "right" };
+      tr.getCell(3).numFmt = "0.0%";
+      tr.getCell(3).alignment = { horizontal: "right" };
+      ws.getColumn(1).width = Math.max(14, Math.min(42, rows.reduce((a, [k]) => Math.max(a, String(k).length), 0) + 8));
+      ws.getColumn(2).width = 10;
+      ws.getColumn(3).width = 10;
+      notes.forEach(t => { ws.addRow([t]).font = { size: 10, color: { argb: "FF808080" } }; });
+      const buf = await wb.xlsx.writeBuffer();
+      download(new Blob([buf], { type: mime }), facetFileName(label));
+      return;
+    }
+    // 兜底 SheetJS（无样式，仅当 exceljs 未加载时）
+    const aoa = [head];
+    for (const [k, v] of rows) aoa.push([k, v, sum ? v / sum : 0]);
+    aoa.push(["合计", sum, 1]);
+    notes.forEach(t => aoa.push([t]));
+    const ws2 = XLSX.utils.aoa_to_sheet(aoa);
+    ws2["!cols"] = [{ wch: 28 }, { wch: 10 }, { wch: 10 }];
+    for (let i = 2; i <= rows.length + 2; i++) {
+      const c = ws2["C" + i];
+      if (c) { c.t = "n"; c.z = "0.0%"; }
+    }
+    const wb2 = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb2, ws2, String(label).slice(0, 31));
+    const out = XLSX.write(wb2, { bookType: "xlsx", type: "array" });
+    download(new Blob([out], { type: mime }), facetFileName(label));
+  } catch (err) {
+    alert("导出失败：" + (err && err.message ? err.message : err));
+  }
 }
 $("#exportDesenBtn").onclick = () => doExport(true);
 $("#exportPlainBtn").onclick = () => {
@@ -1966,6 +2095,9 @@ document.addEventListener("keydown", e => {
 window.AppCore = { loadSnapshot, build_summary, filter_records, patientsAgg, summaryLocal, STORE,
   REPORT, reportText, reportDrugBlock, renderReport, copyToClipboard, currentKw,
   reportDrugsOf, reportSelection, reportDemoText, buildReportMs, REPORT_DEMO_HINT, REPORT_DEMO_RANGE,
+  clampReportBody, measureTextOffsetTop, RC_BLOCKS_SHOWN,
+  facetRows, facetFileName, doFacetExport, REASON_META_NOTE,
+  buildMs, loadSummary,
   refresh, renderGlobal, renderFiles,   // 供回归/截图脚本在无文件上传的情况下直接驱动页面
   tutStart, tutGo, tutEnd, tutLoadDemo, tutEnsureDemoData, tutClearDemo, tutMaybePrompt, tutHideCoach,
   TUT, TUT_SEEN_KEY,

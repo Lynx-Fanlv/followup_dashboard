@@ -226,6 +226,10 @@
   .ms-tools .ms-count{color:var(--muted);margin-right:auto}
   .ms-tools .ms-act{color:var(--brand);cursor:pointer}
   .ms-tools .ms-act:hover{text-decoration:underline}
+  /* 导出＝会下载文件，和「全选／清空」这类即时切换不是一类动作，用浅底胶囊区分开 */
+  .ms-tools .ms-exp{background:var(--brand-soft);border:1px solid var(--brand-soft);border-radius:6px;
+    padding:2px 7px;font-weight:600;white-space:nowrap}
+  .ms-tools .ms-exp:hover{background:var(--brand);border-color:var(--brand);color:#fff;text-decoration:none}
   .ms-list{max-height:240px;overflow:auto;padding:4px 0}
   .ms-list label{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:13px;cursor:pointer;color:var(--text)}
   .ms-list label:hover{background:#f9fbff}
@@ -258,8 +262,19 @@
   .rc-head .spacer{flex:1}
   .rc-copy{white-space:nowrap}
   .rc-copy.done{background:var(--good);border-color:var(--good);color:#fff}
+  /* 正文限高：默认只完整显示「首行 + 2 个品种段」的高度，超出滚动 ——
+     一次导入几十个品种时，小结卡片不会再被撑到几千像素。
+     260px 是 CSS 兜底；有真实布局时由 clampReportBody() 实测「首行 + 2 段」的精确高度覆盖，
+     品种段行数会随「原因分布」长短变化，写死像素会时而露出三段、时而只看得到一个半。 */
   .rc-body{margin:0;font-family:inherit;font-size:13px;line-height:1.9;color:var(--text);
-    white-space:pre-wrap;word-break:break-word}
+    white-space:pre-wrap;word-break:break-word;
+    max-height:260px;overflow:hidden auto;overscroll-behavior:contain;
+    padding-right:4px;scrollbar-width:thin;scrollbar-color:#cbd5e1 transparent}
+  .rc-body::-webkit-scrollbar{width:8px}
+  .rc-body::-webkit-scrollbar-track{background:transparent}
+  .rc-body::-webkit-scrollbar-thumb{background:#d3dbe6;border-radius:4px;
+    border:2px solid transparent;background-clip:content-box}
+  .rc-body::-webkit-scrollbar-thumb:hover{background:#b9c4d4;background-clip:content-box}
   .rc-body.is-empty{color:var(--muted)}
   /* 未选品种时的示例：整块灰掉（一眼看出不是自己的数据），提示行单独着色 */
   .rc-body.is-demo{color:var(--muted)}
@@ -490,28 +505,28 @@
       <div class="ms" id="drugMs">
         <button class="ms-btn" type="button" id="drugMsBtn">药品：全部 <span class="ms-caret">▾</span></button>
         <div class="ms-panel hidden" id="drugMsPanel">
-          <div class="ms-tools"><span class="ms-count" id="drugMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act" data-act="none">清空</a></div>
+          <div class="ms-tools"><span class="ms-count" id="drugMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act ms-exp" data-act="export" title="把本栏的统计结果导出为 Excel（当前筛选下的全部条目，不受上方检索框影响）">导出</a><a class="ms-act" data-act="none">清空</a></div>
           <div class="ms-list" id="drugMsList"></div>
         </div>
       </div>
       <div class="ms" id="pharmMs">
         <button class="ms-btn" type="button" id="pharmMsBtn">药店：全部 <span class="ms-caret">▾</span></button>
         <div class="ms-panel hidden" id="pharmMsPanel">
-          <div class="ms-tools"><span class="ms-count" id="pharmMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act" data-act="none">清空</a></div>
+          <div class="ms-tools"><span class="ms-count" id="pharmMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act ms-exp" data-act="export" title="把本栏的统计结果导出为 Excel（当前筛选下的全部条目，不受上方检索框影响）">导出</a><a class="ms-act" data-act="none">清空</a></div>
           <div class="ms-list" id="pharmMsList"></div>
         </div>
       </div>
       <div class="ms" id="execMs">
         <button class="ms-btn" type="button" id="execMsBtn">执行人：全部 <span class="ms-caret">▾</span></button>
         <div class="ms-panel hidden" id="execMsPanel">
-          <div class="ms-tools"><span class="ms-count" id="execMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act" data-act="none">清空</a></div>
+          <div class="ms-tools"><span class="ms-count" id="execMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act ms-exp" data-act="export" title="把本栏的统计结果导出为 Excel（当前筛选下的全部条目，不受上方检索框影响）">导出</a><a class="ms-act" data-act="none">清空</a></div>
           <div class="ms-list" id="execMsList"></div>
         </div>
       </div>
       <div class="ms" id="reasonMs">
         <button class="ms-btn" type="button" id="reasonMsBtn" title="仅统计任务状态为「已完成」的记录">根本原因：全部 <span class="ms-caret">▾</span></button>
         <div class="ms-panel hidden" id="reasonMsPanel">
-          <div class="ms-tools"><span class="ms-count" id="reasonMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act" data-act="none">清空</a></div>
+          <div class="ms-tools"><span class="ms-count" id="reasonMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act ms-exp" data-act="export" title="把本栏的统计结果导出为 Excel（当前筛选下的全部条目，不受上方检索框影响）">导出</a><a class="ms-act" data-act="none">清空</a></div>
           <div class="ms-list" id="reasonMsList"></div>
         </div>
       </div>
