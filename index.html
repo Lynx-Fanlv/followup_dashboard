@@ -90,6 +90,9 @@
   /* 文件管理 */
   .filebar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--panel);
     border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:16px 0 4px}
+  /* 自带 display 的组件必须各写一条 .组件.hidden，否则同优先级下后定义的 display 会盖掉 .hidden
+     —— 本文件统一按这个约定写；.filebar 曾漏掉，导致快照里「已加载文件」条藏不住 */
+  .filebar.hidden{display:none}
   .filebar .fb-lbl{font-size:13px;color:var(--muted);font-weight:600}
   .file-chip{display:inline-flex;align-items:center;gap:6px;background:var(--brand-soft);
     border:1px solid var(--brand);color:var(--brand);border-radius:999px;padding:3px 10px;font-size:12px}
@@ -1547,6 +1550,7 @@ const EXPORT_COLS = [
 const STORE = { records: [], files: [], seq: 0 };
 let pendingFiles = [];          // 待「开始分析」的 File 列表
 let SNAP_MODE = false;          // 是否为快照打开模式（只读）
+let SNAP_SCOPE = null;          // 快照打开模式下的「数据范围」元信息（生成时写入，含是否按筛选收窄）
 
 const TAXONOMY = STATUS_TAXONOMY;
 const SRC_LABEL = { routine: "日常随访", enrollment: "入组", overdue_purchase: "超期未购药", unknown: "未知" };
@@ -1885,8 +1889,21 @@ function renderGlobal(d) {
   const taskCards =
     `<div class="g-card task done"><span class="g-num">${done}</span><span class="g-cap">已完成</span></div>` +
     `<div class="g-card task ignored"><span class="g-num">${ignored}</span><span class="g-cap">忽略或改期</span></div>`;
+  // 「全量统计」这张卡的数字口径：普通页面 = 全部已加载数据（不随筛选变化）；
+  // 快照 = 快照内那批数据（生成时已按筛选收窄），所以必须换一套说法，
+  // 否则接收方会以为拿到的是全量 —— 与顶部「数据范围（非全量）」自相矛盾。
+  let gHead;
+  if (SNAP_MODE) {
+    const filtered = !!(SNAP_SCOPE && SNAP_SCOPE.filtered);
+    gHead = `<div class="g-head"><span class="g-title">本快照统计</span>`
+      + `<span class="g-sub">共 ${d.total || 0} 条`
+      + (filtered ? "（已按筛选条件收窄）" : "（未应用筛选）")
+      + ` · 不随下方筛选变化</span></div>`;
+  } else {
+    gHead = `<div class="g-head"><span class="g-title">全量统计</span><span class="g-sub">基于全部上传数据 · 不随筛选变化</span></div>`;
+  }
   $("#globalRow").innerHTML =
-    `<div class="g-head"><span class="g-title">全量统计</span><span class="g-sub">基于全部上传数据 · 不随筛选变化</span></div>` +
+    gHead +
     `<div class="g-grid">${stCards}${taskCards}` +
     `<div class="g-card total"><span class="g-num">${d.total || 0}</span><span class="g-cap">合计</span></div>` +
     `</div>`;
@@ -2412,7 +2429,9 @@ function bindReportCopy() {
 
 // 文件管理
 function renderFiles(files) {
-  $("#fileChips").innerHTML = (files || []).map(f =>
+  // 快照里「已加载文件」整条被摘除，这里做空值保护（同类空值问题曾让快照页初始化中途抛错）
+  const chips = $("#fileChips");
+  if (chips) chips.innerHTML = (files || []).map(f =>
     `<span class="file-chip">${esc(f.label)} (${f.count})<span class="fx" data-fid="${f.id}" title="删除该文件">×</span></span>`).join("");
   document.querySelectorAll(".file-chip .fx").forEach(x => x.onclick = () => {
     if (!confirm("确定删除该文件的全部记录？")) return;
@@ -2670,7 +2689,10 @@ $("#startBtn").onclick = async () => {
   }
 };
 
-$("#clearAllBtn").onclick = () => {
+// 注意：#clearAllBtn 位于「已加载文件」条内，而该整条在快照里会被摘除，
+// 所以绑定必须做空值保护 —— 否则快照页初始化时会抛错并中断后面所有控件绑定。
+const clearAllBtnEl = $("#clearAllBtn");
+if (clearAllBtnEl) clearAllBtnEl.onclick = () => {
   if (!confirm("确定清空全部已加载数据？")) return;
   STORE.records = []; STORE.files = []; STORE.seq = 0;
   state.reportDrugs = null;         // 小结的品种选择跟着数据一起重来
@@ -2938,6 +2960,38 @@ const RE_FNAME_BAD = /[\\/:*?"<>|]/g;
 const sanitizeFname = s => String(s).replace(RE_FNAME_BAD, "_");
 
 /* ============ 快照生成（自包含 HTML，可离线打开/分享） ============ */
+// 快照 = 「当前筛选结果」的可视化留档。数据侧已经只写入筛选后的记录（与「导出明细」同一套
+// filter_records），但页面 DOM 里还有几处会漏出范围外的内容，序列化前必须先清空：
+//   ① 分面(faceted)展示：筛选「药店=药房A」时，药品图/药店面板仍会列出其它取值与条数
+//      （界面上这是刻意设计的——方便继续勾选；但写进分享文件就成了范围外数据）；
+//   ② 非当前视图的陈旧行：生成时停在「患者」视图，明细表里的旧行会原样进文件（反之亦然）；
+//   ③ 文件清单：列出全部已加载文件，含被筛掉的文件名与条数。
+// 这些容器在快照打开时都会被 loadSnapshot()/refresh() 用快照内的数据重算，所以清空不影响接收方
+// 看到的完整性；清空后本页立即重算一遍（redrawAfterSnapshot），生成者看到的页面也不受影响。
+const SNAP_CLEAR_SELECTORS = [
+  "#summary", "#globalRow",                        // 用药状态卡 / 全量统计卡（含其它状态的条数）
+  "#donutChart", "#drugChart", "#trendChart",      // 三张图表
+  "#reasonChart", "#reasonSub", "#reasonFoot",     // 根本原因图（分面：含范围外的桶）
+  "#subtypeChips", "#filterInfo",                  // 下钻胶囊 / 生效筛选条件
+  "#drugMsList", "#pharmMsList", "#execMsList", "#reasonMsList",   // 四个筛选面板的取值列表（分面：含范围外取值）
+  "#fileChips",                                    // 文件清单（含被筛掉的文件名与条数）
+  "#thead", "#tbody", "#pagination",               // 明细表
+  "#patientView",                                  // 患者视图卡片
+];
+function clearDataContainers() {
+  SNAP_CLEAR_SELECTORS.forEach(sel => {
+    const el = document.querySelector(sel);
+    if (el) el.innerHTML = "";
+  });
+}
+// 清空后的现场恢复：容器内容全是 STORE 的派生物，重算一遍即可（口径与生成前完全一致）
+async function redrawAfterSnapshot() {
+  CURRENT.global = build_summary(STORE.records);
+  renderGlobal(CURRENT.global);
+  renderFiles(STORE.files);
+  await refresh();
+}
+
 async function doSnapshot(desen) {
   if (!STORE.records.length) { alert("暂无数据可生成快照"); return; }
   // 快照靠序列化当前页面实现：教程的遮罩/说明卡也会被一起序列化进去，必须先退出教程
@@ -2999,6 +3053,15 @@ async function doSnapshot(desen) {
       el.parentNode.replaceChild(anchor, el);
       return { el, anchor };
     });
+    // 「已加载文件」整条（含「清空全部」）在快照里同样是死控件：
+    // 文件清单会漏出被筛掉的文件名与条数，「清空全部」点下去只会把只读快照清成空白。
+    // 与 .desen-tog / #reportCard 同一处置：序列化前整条摘除，序列化后原位放回。
+    const fileBarEl = document.querySelector(".filebar");
+    let fileBarAnchor = null;
+    if (fileBarEl && fileBarEl.parentNode) {
+      fileBarAnchor = document.createComment("filebar-removed-in-snapshot");
+      fileBarEl.parentNode.replaceChild(fileBarAnchor, fileBarEl);
+    }
     // 教程用过的浮层（遮罩/说明卡/提示条/首次访问引导气泡）虽然已隐藏，也不应进入快照：临时摘出，序列化后放回
     const tutNodes = [TUT.root, TUT.card, document.querySelector(".tut-coach"),
       document.querySelector(".tut-toast")].filter(Boolean);
@@ -3010,6 +3073,7 @@ async function doSnapshot(desen) {
     if (tutBtnNew) tutBtnEl.classList.remove("is-new");
     // 直接序列化当前页面：逻辑脚本已内联在页面中，无需 fetch，
     // 因此 https 与 file://（双击打开）都能生成可离线打开的自包含快照。
+    clearDataContainers();   // 见上方 SNAP_CLEAR_SELECTORS：把范围外的取值/行清掉，别写进分享文件
     let html = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
     tutNodes.forEach(n => document.body.appendChild(n));
     if (tutBtnNew) tutBtnEl.classList.add("is-new");
@@ -3022,6 +3086,9 @@ async function doSnapshot(desen) {
     expLinks.forEach(({ el, anchor }) => {
       if (anchor.parentNode) anchor.parentNode.replaceChild(el, anchor);
     });
+    if (fileBarEl && fileBarAnchor && fileBarAnchor.parentNode) {
+      fileBarAnchor.parentNode.replaceChild(fileBarEl, fileBarAnchor);
+    }
     // 快照为只读视图，不需要 xlsx / exceljs 库；剥离外链，避免 file:// 下加载失败
     html = html.replace('<' + 'script src="vendor/xlsx.full.min.js"></sc' + 'ript>', "");
     html = html.replace('<' + 'script src="vendor/exceljs.min.js"></sc' + 'ript>', "");
@@ -3032,8 +3099,12 @@ async function doSnapshot(desen) {
     download(new Blob([html], { type: "text/html" }),
       "随访看板_" + (desen ? "脱敏" : "不脱敏") + "快照"
       + (tag ? "_" + tag.map(sanitizeFname).join("_") : "") + ".html");
+    // 下载已触发，再把前面清空的容器按当前数据重算回来（生成者无感）
+    await redrawAfterSnapshot();
   } catch (err) {
     alert("快照生成失败：" + (err && err.message ? err.message : err));
+    // 出错也要恢复现场：清空动作可能在抛错之前就已执行
+    await redrawAfterSnapshot();
   } finally {
     hideLoading();
   }
@@ -3055,6 +3126,7 @@ $("#snapshotPlainBtn").onclick = () => {
 function loadSnapshot(snap) {
   hideLoading(); // 快照可能序列化时拍入了可见的「正在生成」遮罩，打开后必须先关掉
   SNAP_MODE = true;
+  SNAP_SCOPE = snap.scope || null;   // 供 renderGlobal 换用「本快照统计」口径
   STORE.records = (snap.records || []).map(r => Object.assign({}, r));
   STORE.files = snap.files || [];
   state.plainName = !snap.desen;
@@ -3070,7 +3142,11 @@ function loadSnapshot(snap) {
     ? "📄 这是一份脱敏快照：姓名、电话已脱敏，文件中不含任何明文个人信息，可安全分享。"
     : "⚠️ 这是一份「不脱敏」快照：包含明文姓名、电话等个人信息，仅可分享给可信接收方。") + scopeHtml;
   // 快照为只读分享件：隐藏上传、文件管理、导出、再次快照等按钮
-  const fb = document.querySelector(".filebar"); if (fb) fb.classList.add("hidden");
+  // 「已加载文件」条：新快照生成时已整条摘除；旧快照（文件里还有这条）这里兜底藏住。
+  // 光加 .hidden 类不够 —— .filebar{display:flex} 与 .hidden 同优先级且排在后面会把它盖掉，
+  // 所以补了 .filebar.hidden 规则，并对旧快照再上一道行内 display:none。
+  const fb = document.querySelector(".filebar");
+  if (fb) { fb.classList.add("hidden"); fb.style.display = "none"; }
   ["#exportDesenBtn", "#exportPlainBtn", "#snapshotDesenBtn", "#snapshotPlainBtn", "#tutBtn"]
     .forEach(s => { const el = $(s); if (el) el.classList.add("hidden"); });
   tutHideCoach(false);   // 快照是只读分享件，不该出现「第一次使用？」引导气泡

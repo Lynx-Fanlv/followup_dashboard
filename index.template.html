@@ -90,6 +90,9 @@
   /* 文件管理 */
   .filebar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--panel);
     border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:16px 0 4px}
+  /* 自带 display 的组件必须各写一条 .组件.hidden，否则同优先级下后定义的 display 会盖掉 .hidden
+     —— 本文件统一按这个约定写；.filebar 曾漏掉，导致快照里「已加载文件」条藏不住 */
+  .filebar.hidden{display:none}
   .filebar .fb-lbl{font-size:13px;color:var(--muted);font-weight:600}
   .file-chip{display:inline-flex;align-items:center;gap:6px;background:var(--brand-soft);
     border:1px solid var(--brand);color:var(--brand);border-radius:999px;padding:3px 10px;font-size:12px}
