@@ -1472,6 +1472,13 @@ async function doSnapshot(desen) {
       reportAnchor = document.createComment("report-card-removed-in-snapshot");
       reportEl.parentNode.replaceChild(reportAnchor, reportEl);
     }
+    // 筛选栏各面板的「导出」同属"语义已死"：快照为只读分享件，vendor 库（exceljs/xlsx）被剥离，
+    // 留着只会让接收方点出一个报错。序列化前连同占位符一起摘掉，还原时原位放回。
+    const expLinks = [...document.querySelectorAll(".ms-tools .ms-exp")].map(el => {
+      const anchor = document.createComment("facet-export-removed-in-snapshot");
+      el.parentNode.replaceChild(anchor, el);
+      return { el, anchor };
+    });
     // 教程用过的浮层（遮罩/说明卡/提示条/首次访问引导气泡）虽然已隐藏，也不应进入快照：临时摘出，序列化后放回
     const tutNodes = [TUT.root, TUT.card, document.querySelector(".tut-coach"),
       document.querySelector(".tut-toast")].filter(Boolean);
@@ -1492,6 +1499,9 @@ async function doSnapshot(desen) {
     if (reportEl && reportAnchor && reportAnchor.parentNode) {
       reportAnchor.parentNode.replaceChild(reportEl, reportAnchor);
     }
+    expLinks.forEach(({ el, anchor }) => {
+      if (anchor.parentNode) anchor.parentNode.replaceChild(el, anchor);
+    });
     // 快照为只读视图，不需要 xlsx / exceljs 库；剥离外链，避免 file:// 下加载失败
     html = html.replace('<' + 'script src="vendor/xlsx.full.min.js"></sc' + 'ript>', "");
     html = html.replace('<' + 'script src="vendor/exceljs.min.js"></sc' + 'ript>', "");
@@ -1549,6 +1559,8 @@ function loadSnapshot(snap) {
   document.querySelectorAll(".desen-tog").forEach(el => el.remove());
   // 同理：快照是只读分享件，不提供「分析小结」（新快照生成时已摘除，这里兜底旧快照）
   document.querySelectorAll("#reportCard").forEach(el => el.remove());
+  // 面板内的「导出」也要兜底移除：快照剥掉了 xlsx/exceljs，点下去只会弹「导出失败」
+  document.querySelectorAll(".ms-tools .ms-exp").forEach(el => el.remove());
   CURRENT.global = build_summary(STORE.records);
   renderGlobal(CURRENT.global);
   $("#board").classList.remove("hidden");
