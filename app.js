@@ -41,6 +41,8 @@ const DETAIL = [["patient_name", "患者"], ["phone", "电话"], ["gender", "性
 const state = { status: new Set(), subtype: null, drugs: new Set(), pharmacies: new Set(), executors: new Set(),
   reasons: new Set(), start: null, end: null,
   q: "", view: "detail", page: 1, pageSize: 50, hiddenCols: new Set(),
+  // 分析小结的「品种」选择：null = 用户尚未选择（卡片显示示例），Set = 用户已选（空集也算已选）
+  reportDrugs: null,
   plainName: false, plainPhone: false };
 let CURRENT = { summary: null, global: null };
 let DATA = { rows: [], patients: [] };
@@ -591,10 +593,16 @@ function updateFilterInfo() {
 
 /* ============ 分析小结（文字版，可一键复制） ============ */
 // 数据范围 = 当前筛选结果，与「导出明细」「下载快照」共用同一套 filter_records，口径完全一致。
-// 首行按「任务状态」拆分（已完成 / 脱落·改期）；
 // 每个品种自成一段，段内给出用药状态四态条数，并追加该品种「脱落停药」的根本原因分布
 // （与「停药／减量根本原因」卡片同口径：仅统计任务状态＝已完成，且剔除误入原因列的非停减描述）。
-const REPORT = { text: "" };
+// 首行按「任务状态」拆分（已完成 / 脱落·改期），**恒为当前筛选全量**，作为整体背景；
+// 品种段落只写「用户勾选的品种」——一次导入几十个品种时，全量铺开会把卡片撑到几千像素。
+// 未勾选品种时显示「XX品种」的格式示例（复制按钮同时禁用，避免把示例文字当数据外发）。
+const REPORT = { text: "", demo: false, demoHint: "", demoText: "" };
+const REPORT_DEMO_HINT = "（示例）下面是格式演示。勾选品种后，这里会换成你当前数据的真实小结。";
+// 用户选过品种、但当前筛选把它们全筛没了：说明原因，别让人以为选择丢了
+const REPORT_DEMO_STALE_HINT = "（示例）已选品种在当前筛选下没有记录。下面是格式演示；放宽筛选条件后，选中的品种会自动回来。";
+const REPORT_DEMO_RANGE = { start: "2026-09-01", end: "2026-09-30" };
 
 // "2026-09-01" -> "2026.9.1"（正文里的日期按人读习惯去掉前导零）
 function fmtDotDate(d) {
@@ -637,7 +645,54 @@ function reportDrugBlock(drug, recs) {
   }
   return lines.join("\n");
 }
-function reportText(recs, kw) {
+
+// —— 品种选择（小结卡片右上角的多选） ——
+// 当前筛选结果里出现的品种，按条数降序（同数量按名称），与正文的品种顺序一致
+function reportDrugsOf(recs) {
+  const g = {};
+  for (const r of recs) { const k = r.drug_product || "未知品种"; (g[k] = g[k] || []).push(r); }
+  return Object.entries(g)
+    .sort((a, b) => b[1].length - a[1].length || String(a[0]).localeCompare(String(b[0]), "zh"))
+    .map(([k]) => k);
+}
+// 本次渲染实际生效的品种选择，返回 { avail, sel, stale }。
+// · state.reportDrugs === null 表示用户从未动过这个控件：此时若结果里只剩一个品种就自动选中它，
+//   省掉「唯一品种还要手点一次」；用户主动清空后（空 Set）不再自动选中，行为保持可预期。
+// · 选择集本身**不随筛选增删**（不做隐式清理）：它是用户"要汇报这几个品种"的意图声明，
+//   筛选把某个品种暂时筛没了不该悄悄丢掉它；正文只写「选中 ∩ 当前结果」。
+//   一个都不剩时 stale=true —— 卡片切回示例并说明原因，放宽筛选后选择自动回来。
+function reportSelection(recs) {
+  const avail = reportDrugsOf(recs);
+  if (state.reportDrugs === null && avail.length === 1) state.reportDrugs = new Set(avail);
+  const sel = state.reportDrugs ? avail.filter(k => state.reportDrugs.has(k)) : [];
+  const stale = !sel.length && !!state.reportDrugs && state.reportDrugs.size > 0;
+  return { avail, sel, stale };
+}
+// 示例正文故意用**真实的格式化函数**拼出来（而不是手写死文本）：
+// 段格式、四态顺序、原因措辞以后演进时，示例会自动跟着变，不会变成"照着旧版排的假样子"。
+function reportDemoRecs() {
+  const mk = (drug, status, n, reason, task) => Array.from({ length: n }, () => ({
+    drug_product: drug, medication_status: status, task_status: task || "已完成",
+    reason_bucket: reason || "", followup_time: "2026-09-10 10:00",
+  }));
+  const A = "XX品种A", B = "XX品种B";
+  return [
+    // A 共 40 条：规范 26 / 不规范 8 / 脱落 4 / 其他 2
+    ...mk(A, "规范用药", 22), ...mk(A, "规范用药", 4, "", "待执行"),
+    ...mk(A, "不规范用药", 8), ...mk(A, "其他", 2),
+    ...mk(A, "脱落停药", 2, "疾病稳定／疗程结束"),
+    ...mk(A, "脱落停药", 1, "医嘱调整（停药／减量／推迟）"),
+    ...mk(A, "脱落停药", 1, "经济／费用"),
+    // B 共 20 条：规范 15 / 不规范 3 / 脱落 1 / 其他 1
+    ...mk(B, "规范用药", 10), ...mk(B, "规范用药", 5, "", "待执行"),
+    ...mk(B, "不规范用药", 3), ...mk(B, "其他", 1),
+    ...mk(B, "脱落停药", 1, "疾病稳定／疗程结束"),
+  ];
+}
+function reportDemoText(hint) {
+  return (hint || REPORT_DEMO_HINT) + "\n\n" + reportText(reportDemoRecs(), REPORT_DEMO_RANGE, null);
+}
+function reportText(recs, kw, sel) {
   const total = recs.length;
   const done = recs.filter(isDoneTask).length;
   const range = reportRange(recs, kw);
@@ -649,8 +704,11 @@ function reportText(recs, kw) {
     const k = r.drug_product || "未知品种";
     (groups[k] = groups[k] || []).push(r);
   }
+  // sel 为 null 时不筛品种（=全部），保持既有调用语义
+  const want = sel == null ? null : new Set(sel);
   const blocks = Object.entries(groups)
     .sort((a, b) => b[1].length - a[1].length || String(a[0]).localeCompare(String(b[0]), "zh"))
+    .filter(([d]) => want === null || want.has(d))
     .map(([d, rs]) => reportDrugBlock(d, rs));
   return [head].concat(blocks).join("\n\n");
 }
@@ -658,21 +716,92 @@ function renderReport(recs, kw) {
   const body = $("#reportBody");
   if (!body) return;
   const btn = $("#reportCopyBtn");
-  const empty = !recs.length;
-  REPORT.text = empty ? "" : reportText(recs, kw);
-  body.textContent = empty ? "当前筛选条件下没有记录，无法生成小结。" : REPORT.text;
-  body.classList.toggle("is-empty", empty);
+  const { avail, sel, stale } = reportSelection(recs);
+  const noData = !recs.length;
+  const demo = !noData && !sel.length;          // 未选品种（或所选品种在当前筛选下都没数据）→ 显示示例
+  const hint = stale ? REPORT_DEMO_STALE_HINT : REPORT_DEMO_HINT;
+  REPORT.text = (noData || demo) ? "" : reportText(recs, kw, sel);
+  REPORT.demo = demo;
+  REPORT.demoHint = demo ? hint : "";
+  REPORT.demoText = demo ? reportDemoText(hint) : "";
+  if (noData) {
+    body.textContent = "当前筛选条件下没有记录，无法生成小结。";
+  } else if (demo) {
+    // 提示行单独着色（正文其余部分是灰的），一眼能看出"这不是我的数据"
+    body.innerHTML = '<span class="rc-demo-hint">' + esc(hint) + "</span>"
+      + esc(REPORT.demoText.slice(hint.length));
+  } else {
+    body.textContent = REPORT.text;
+  }
+  body.classList.toggle("is-empty", noData);
+  body.classList.toggle("is-demo", demo);
   if (btn) {
-    btn.disabled = empty;
+    btn.disabled = noData || demo;
+    btn.title = stale ? "已选品种在当前筛选下没有记录，请放宽筛选条件或改选品种，再复制"
+      : demo ? "请先在上面选择品种，再复制真实小结（示例文字不可复制）"
+        : "复制这段小结文字，可直接粘贴到汇报材料或聊天窗口";
     btn.classList.remove("done");
     btn.textContent = "一键复制";
   }
+  buildReportMs(avail, countBy(recs, r => r.drug_product || "未知品种"), sel);
   const scope = $("#reportScope");
   if (scope) {
     const filtered = scopeLines(kw).length > 0;
-    scope.textContent = (filtered ? "基于当前筛选 · " : "基于全部数据 · ") + recs.length + " 条";
-    scope.classList.toggle("filtered", filtered);
+    const base = (filtered ? "基于当前筛选 · " : "基于全部数据 · ") + recs.length + " 条";
+    scope.textContent = noData ? base
+      : demo ? (stale ? "示例 · 所选品种在当前筛选下无记录" : "示例 · 未选择品种")
+        : (sel.length === avail.length ? "全部 " + avail.length + " 个品种" : "已选 " + sel.length + "/" + avail.length + " 个品种")
+          + " · " + base;
+    scope.classList.toggle("filtered", filtered && !demo && !noData);
+    scope.classList.toggle("demo", demo);
   }
+}
+// 小结的品种多选：沿用筛选栏多选面板的视觉，但语义不同——
+// 筛选项的「未选」＝全部；这里的「未选」＝显示示例，所以按钮/计数文案单独写一套。
+function buildReportMs(avail, counts, sel) {
+  const list = $("#reportMsList"), btn = $("#reportMsBtn"), cnt = $("#reportMsCount"), panel = $("#reportMsPanel");
+  if (!list || !btn) return;
+  const selSet = new Set(sel);
+  list.innerHTML = avail.map(k =>
+    `<label><input type="checkbox" value="${esc(k)}" ${selSet.has(k) ? "checked" : ""}>`
+    + `<span>${esc(k)}</span><span class="ms-cnt">${counts[k] || 0}</span></label>`).join("");
+  list.querySelectorAll("input").forEach(cb => {
+    cb.onchange = () => {
+      // 首次操作时先把「自动选中」的既有结果固化下来，之后完全由用户决定（可清空到示例）
+      if (state.reportDrugs === null) state.reportDrugs = new Set(sel);
+      if (cb.checked) state.reportDrugs.add(cb.value); else state.reportDrugs.delete(cb.value);
+      refresh();
+    };
+  });
+  let search = panel ? panel.querySelector(".ms-search") : null;
+  if (panel && !search) {
+    search = document.createElement("input");
+    search.className = "ms-search";
+    search.placeholder = "输入关键字检索…";
+    list.parentNode.insertBefore(search, list);
+  }
+  if (search) {
+    search.oninput = () => {
+      const q = search.value.trim().toLowerCase();
+      list.querySelectorAll("label").forEach(lb => {
+        const k = lb.querySelector("input").value;
+        lb.style.display = (!q || k.toLowerCase().includes(q) || selSet.has(k)) ? "" : "none";
+      });
+    };
+    search.oninput();
+  }
+  if (panel) panel.querySelectorAll(".ms-act").forEach(a => a.onclick = () => {
+    // 从「当前生效选择」出发，避免把自动选中的那个品种漏掉
+    state.reportDrugs = a.dataset.act === "all" ? new Set(avail) : new Set();
+    refresh();
+  });
+  const n = sel.length, tot = avail.length;
+  btn.innerHTML = `品种小结：${(!tot || !n) ? "请选择" : (n === tot ? "全部 " + tot + " 个" : "已选 " + n + "/" + tot)} <span class="ms-caret">▾</span>`;
+  btn.classList.toggle("has-sel", n > 0 && n < tot);
+  btn.disabled = !tot;
+  btn.title = tot ? "小结正文只写选中的品种（可多选）；首行恒为当前筛选全量"
+    : "当前筛选下没有品种";
+  if (cnt) cnt.textContent = !tot ? "无可选品种" : (n === 0 ? "未选（显示示例）" : "已选 " + n + "/" + tot);
 }
 // 复制到剪贴板：优先 Clipboard API；file:// 或旧内核下回退到临时 textarea + execCommand
 function copyToClipboard(text) {
@@ -973,6 +1102,7 @@ $("#startBtn").onclick = async () => {
 $("#clearAllBtn").onclick = () => {
   if (!confirm("确定清空全部已加载数据？")) return;
   STORE.records = []; STORE.files = []; STORE.seq = 0;
+  state.reportDrugs = null;         // 小结的品种选择跟着数据一起重来
   CURRENT = { summary: null, global: null }; DATA = { rows: [], patients: [] };
   $("#board").classList.add("hidden");
   $("#fileChips").innerHTML = "";
@@ -1023,6 +1153,10 @@ $("#drugMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#drugMsPane
 $("#pharmMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#pharmMsPanel")); };
 $("#execMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#execMsPanel")); };
 $("#reasonMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#reasonMsPanel")); };
+// 小结卡在快照里是整块摘掉的，快照页面里没有这个按钮 —— 必须空值保护，
+// 否则这里会抛错并中断后面所有控件（筛选/列显隐/搜索）的初始化。
+const reportMsBtnEl = $("#reportMsBtn");
+if (reportMsBtnEl) reportMsBtnEl.onclick = e => { e.stopPropagation(); togglePanel($("#reportMsPanel")); };
 document.addEventListener("click", e => {
   if (e.target.closest(".ms") || e.target.closest("#colPanel") || e.target.closest("#colBtn")) return;
   closeAllPopovers();
@@ -1561,7 +1695,7 @@ function tutSteps() {
       body: `此处可以点击筛选：药品、药店、执行人、原因、时间，均可多选。` },
 
     { sel: "#reportCard", t: "分析小结",
-      body: `此处可以一键复制：把当前筛选范围写成文字，按品种分段，直接粘进汇报。` },
+      body: `此处可以选择品种：勾选要汇报的品种，小结按品种分段，再一键复制。` },
 
     { sel: "#colPanel", t: "两种视角 + 列显隐",
       before: async () => { $("#colPanel").classList.remove("hidden"); },
@@ -1647,6 +1781,7 @@ function tutSnapshotState() {
     status: [...state.status], subtype: state.subtype,
     drugs: [...state.drugs], pharmacies: [...state.pharmacies],
     executors: [...state.executors], reasons: [...state.reasons],
+    reportDrugs: state.reportDrugs ? [...state.reportDrugs] : null,
     start: state.start, end: state.end, q: state.q, page: state.page, view: state.view,
     search: $("#searchInput").value, sd: $("#startDate").value, ed: $("#endDate").value,
   };
@@ -1657,6 +1792,7 @@ async function tutRestoreState() {
   state.status = new Set(s.status); state.subtype = s.subtype || null;
   state.drugs = new Set(s.drugs); state.pharmacies = new Set(s.pharmacies);
   state.executors = new Set(s.executors); state.reasons = new Set(s.reasons);
+  state.reportDrugs = s.reportDrugs ? new Set(s.reportDrugs) : null;
   state.start = s.start; state.end = s.end; state.q = s.q;
   state.page = s.page; state.view = s.view || "detail";
   $("#searchInput").value = s.search; $("#startDate").value = s.sd; $("#endDate").value = s.ed;
@@ -1829,6 +1965,7 @@ document.addEventListener("keydown", e => {
 // 调试/测试用：暴露核心计算与快照接口
 window.AppCore = { loadSnapshot, build_summary, filter_records, patientsAgg, summaryLocal, STORE,
   REPORT, reportText, reportDrugBlock, renderReport, copyToClipboard, currentKw,
+  reportDrugsOf, reportSelection, reportDemoText, buildReportMs, REPORT_DEMO_HINT, REPORT_DEMO_RANGE,
   refresh, renderGlobal, renderFiles,   // 供回归/截图脚本在无文件上传的情况下直接驱动页面
   tutStart, tutGo, tutEnd, tutLoadDemo, tutEnsureDemoData, tutClearDemo, tutMaybePrompt, tutHideCoach,
   TUT, TUT_SEEN_KEY,

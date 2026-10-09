@@ -261,6 +261,12 @@
   .rc-body{margin:0;font-family:inherit;font-size:13px;line-height:1.9;color:var(--text);
     white-space:pre-wrap;word-break:break-word}
   .rc-body.is-empty{color:var(--muted)}
+  /* 未选品种时的示例：整块灰掉（一眼看出不是自己的数据），提示行单独着色 */
+  .rc-body.is-demo{color:var(--muted)}
+  .rc-body .rc-demo-hint{font-weight:600;color:var(--brand)}
+  .rc-scope.demo{color:var(--brand)}
+  /* 卡内多选面板靠右展开（按钮在卡片右侧，按左对齐会溢出卡片） */
+  .ms.ms-right .ms-panel{left:auto;right:0}
   /* 明细头/视图切换/列显隐 */
   .detail-head{display:flex;align-items:center;gap:10px;margin:14px 0 8px}
   .view-toggle{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
@@ -529,6 +535,15 @@
         <span class="rc-title">分析小结</span>
         <span class="rc-scope" id="reportScope"></span>
         <span class="spacer"></span>
+        <!-- 品种多选：小结正文只写选中的品种（可多选）；未选时正文显示「XX品种」示例 -->
+        <div class="ms ms-right" id="reportMs">
+          <button class="ms-btn" type="button" id="reportMsBtn" disabled
+            title="小结正文只写选中的品种（可多选）；首行恒为当前筛选全量">品种小结：请选择 <span class="ms-caret">▾</span></button>
+          <div class="ms-panel hidden" id="reportMsPanel">
+            <div class="ms-tools"><span class="ms-count" id="reportMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act" data-act="none">清空</a></div>
+            <div class="ms-list" id="reportMsList"></div>
+          </div>
+        </div>
         <button class="btn sm rc-copy" id="reportCopyBtn" type="button" disabled
           title="复制这段小结文字，可直接粘贴到汇报材料或聊天窗口">一键复制</button>
       </div>
