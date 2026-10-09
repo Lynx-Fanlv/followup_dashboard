@@ -3135,8 +3135,10 @@ function loadSnapshot(snap) {
   $("#pendingArea").classList.add("hidden");
   $("#snapBanner").classList.remove("hidden");
   // 快照可能只是「当前筛选结果」的一个子集，必须把范围写清楚，避免接收方误以为拿到全量
+  // 只写「本批条数」，不再写「（全量 N 条）」：接收方不需要知道发送方的库有多大，
+  // 那句对比反而容易被读成"这份快照里就有全量数据"。（scope.total 仍写在快照数据里备用，不展示）
   const scopeHtml = (snap.scope && snap.scope.filtered)
-    ? `<div class="snap-scope">📊 数据范围（非全量）：${esc(snap.scope.lines.join("；"))}；共 ${snap.scope.count} 条（全量 ${snap.scope.total} 条）</div>`
+    ? `<div class="snap-scope">📊 数据范围（非全量）：${esc(snap.scope.lines.join("；"))}；共 ${snap.scope.count} 条</div>`
     : "";
   $("#snapBanner").innerHTML = (snap.desen
     ? "📄 这是一份脱敏快照：姓名、电话已脱敏，文件中不含任何明文个人信息，可安全分享。"
