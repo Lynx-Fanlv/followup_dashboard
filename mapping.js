@@ -4,7 +4,7 @@
 const CANONICAL_FIELDS = [
   "source_file", "source_type", "task_status",
   "patient_name", "patient_id", "phone", "gender", "age",
-  "followup_time", "task_type", "drug_product", "indication", "pharmacy", "executor",
+  "followup_time", "task_type", "drug_product", "indication", "hospital", "pharmacy", "executor",
   "is_key_patient", "medication_status", "irregularity_subtype",
   "stop_reduce_reason",
   "adherence", "summary", "remarks",
@@ -42,6 +42,12 @@ const KEYWORD_RULES = [
                      "记录时间", "回访日期", "日期", "时间"]],
   ["drug_product",  ["药品名称", "药物", "药品", "产品", "商品"]],
   ["indication",    ["适应症", "病种", "诊断", "病症"]],
+  // 医院 = 只认「确诊医院」这一列。
+  // 实测 220 个随访底表：「确诊医院」出现在 67 个 sheet、非空率 95%，是唯一普遍有值的一列；
+  // 「现就诊医院 / 当前治疗医院 / 原就诊医院」（各 58 个 sheet）非空率仅 0~3%，且取值多为
+  // 「与上次相同 / 发生变更」这类选项而非院名，不能当主列；「首诊医院 / 医疗单位 / 末次购药医院」
+  // 只存在于少数专项模板。故按用户口径不做多列兜底，避免混入不同语义的院名。
+  ["hospital",      ["确诊医院"]],
   ["pharmacy",      ["药店名称", "门店", "药房名称", "购药药店", "药店", "药房"]],
   ["is_key_patient",["是否重点患者", "重点患者", "重点"]],
   ["adherence",     ["用药依从性", "依从性"]],

@@ -504,12 +504,19 @@
       </div>
 
       <div class="filterbar">
-      <input type="text" id="searchInput" class="fb-search" placeholder="搜索 患者 / 电话 / 药店 / 药品">
+      <input type="text" id="searchInput" class="fb-search" placeholder="搜索 患者 / 电话 / 医院 / 药店 / 药品">
       <div class="ms" id="drugMs">
         <button class="ms-btn" type="button" id="drugMsBtn">药品：全部 <span class="ms-caret">▾</span></button>
         <div class="ms-panel hidden" id="drugMsPanel">
           <div class="ms-tools"><span class="ms-count" id="drugMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act ms-exp" data-act="export" title="把本栏的统计结果导出为 Excel（当前筛选下的全部条目，不受上方检索框影响）">导出</a><a class="ms-act" data-act="none">清空</a></div>
           <div class="ms-list" id="drugMsList"></div>
+        </div>
+      </div>
+      <div class="ms" id="hospitalMs">
+        <button class="ms-btn" type="button" id="hospitalMsBtn" title="取底表「确诊医院」列">医院：全部 <span class="ms-caret">▾</span></button>
+        <div class="ms-panel hidden" id="hospitalMsPanel">
+          <div class="ms-tools"><span class="ms-count" id="hospitalMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act ms-exp" data-act="export" title="把本栏的统计结果导出为 Excel（当前筛选下的全部条目，不受上方检索框影响）">导出</a><a class="ms-act" data-act="none">清空</a></div>
+          <div class="ms-list" id="hospitalMsList"></div>
         </div>
       </div>
       <div class="ms" id="pharmMs">

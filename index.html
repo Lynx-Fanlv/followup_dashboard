@@ -504,12 +504,19 @@
       </div>
 
       <div class="filterbar">
-      <input type="text" id="searchInput" class="fb-search" placeholder="搜索 患者 / 电话 / 药店 / 药品">
+      <input type="text" id="searchInput" class="fb-search" placeholder="搜索 患者 / 电话 / 医院 / 药店 / 药品">
       <div class="ms" id="drugMs">
         <button class="ms-btn" type="button" id="drugMsBtn">药品：全部 <span class="ms-caret">▾</span></button>
         <div class="ms-panel hidden" id="drugMsPanel">
           <div class="ms-tools"><span class="ms-count" id="drugMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act ms-exp" data-act="export" title="把本栏的统计结果导出为 Excel（当前筛选下的全部条目，不受上方检索框影响）">导出</a><a class="ms-act" data-act="none">清空</a></div>
           <div class="ms-list" id="drugMsList"></div>
+        </div>
+      </div>
+      <div class="ms" id="hospitalMs">
+        <button class="ms-btn" type="button" id="hospitalMsBtn" title="取底表「确诊医院」列">医院：全部 <span class="ms-caret">▾</span></button>
+        <div class="ms-panel hidden" id="hospitalMsPanel">
+          <div class="ms-tools"><span class="ms-count" id="hospitalMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act ms-exp" data-act="export" title="把本栏的统计结果导出为 Excel（当前筛选下的全部条目，不受上方检索框影响）">导出</a><a class="ms-act" data-act="none">清空</a></div>
+          <div class="ms-list" id="hospitalMsList"></div>
         </div>
       </div>
       <div class="ms" id="pharmMs">
@@ -624,7 +631,7 @@
 const CANONICAL_FIELDS = [
   "source_file", "source_type", "task_status",
   "patient_name", "patient_id", "phone", "gender", "age",
-  "followup_time", "task_type", "drug_product", "indication", "pharmacy", "executor",
+  "followup_time", "task_type", "drug_product", "indication", "hospital", "pharmacy", "executor",
   "is_key_patient", "medication_status", "irregularity_subtype",
   "stop_reduce_reason",
   "adherence", "summary", "remarks",
@@ -662,6 +669,12 @@ const KEYWORD_RULES = [
                      "记录时间", "回访日期", "日期", "时间"]],
   ["drug_product",  ["药品名称", "药物", "药品", "产品", "商品"]],
   ["indication",    ["适应症", "病种", "诊断", "病症"]],
+  // 医院 = 只认「确诊医院」这一列。
+  // 实测 220 个随访底表：「确诊医院」出现在 67 个 sheet、非空率 95%，是唯一普遍有值的一列；
+  // 「现就诊医院 / 当前治疗医院 / 原就诊医院」（各 58 个 sheet）非空率仅 0~3%，且取值多为
+  // 「与上次相同 / 发生变更」这类选项而非院名，不能当主列；「首诊医院 / 医疗单位 / 末次购药医院」
+  // 只存在于少数专项模板。故按用户口径不做多列兜底，避免混入不同语义的院名。
+  ["hospital",      ["确诊医院"]],
   ["pharmacy",      ["药店名称", "门店", "药房名称", "购药药店", "药店", "药房"]],
   ["is_key_patient",["是否重点患者", "重点患者", "重点"]],
   ["adherence",     ["用药依从性", "依从性"]],
@@ -1558,6 +1571,7 @@ const EXPORT_COLS = [
   ["followup_time", "随访时间"],
   ["drug_product", "药品"],
   ["indication", "适应症"],
+  ["hospital", "医院"],
   ["pharmacy", "药店"],
   ["executor", "执行人"],
   ["medication_status_raw", "用药状态"],
@@ -1578,12 +1592,14 @@ const SRC_LABEL = { routine: "日常随访", enrollment: "入组", overdue_purch
 const STATUS_COLOR = { "规范用药": "#0f9d6b", "不规范用药": "#e03131", "脱落停药": "#e8590c", "其他": "#868e96" };
 const DETAIL = [["patient_name", "患者"], ["phone", "电话"], ["gender", "性别"], ["age", "年龄"],
   ["followup_time", "随访时间"], ["drug_product", "药品"], ["indication", "适应症"],
-  ["pharmacy", "药店"], ["executor", "执行人"], ["medication_status_raw", "用药状态"],
+  ["hospital", "医院"], ["pharmacy", "药店"], ["executor", "执行人"],
+  ["medication_status_raw", "用药状态"],
   ["irregularity_subtype", "不规范类型"],
   ["stop_reduce_reason", "停药/减量根本原因"], ["reason_bucket", "根本原因分类"],
   ["dosage_raw", "用法用量"], ["remarks", "备注"]];
 
-const state = { status: new Set(), subtype: null, drugs: new Set(), pharmacies: new Set(), executors: new Set(),
+const state = { status: new Set(), subtype: null, drugs: new Set(), hospitals: new Set(),
+  pharmacies: new Set(), executors: new Set(),
   reasons: new Set(), start: null, end: null,
   q: "", view: "detail", page: 1, pageSize: 50, hiddenCols: new Set(),
   // 分析小结的「品种」选择：null = 用户尚未选择（卡片显示示例），Set = 用户已选（空集也算已选）
@@ -1676,6 +1692,7 @@ function build_summary(records) {
     by_source: countBy(records, r => r.source_type),
     by_task_status: countBy(records, r => r.task_status || "未知"),
     by_drug: countBy(records, r => r.drug_product || "未知"),
+    by_hospital: countBy(records, r => r.hospital || "未知"),
     by_pharmacy: countBy(records, r => r.pharmacy || "未知"),
     by_executor: countBy(records, r => r.executor || "未知"),
     by_reason: rs.by_reason,
@@ -1686,10 +1703,10 @@ function build_summary(records) {
     subtypes: SUBTYPE_TAXONOMY,
   };
 }
-// kw: {status:[]|null, subtype, src, drug:[]|null, pharmacy:[]|null, reason:[]|null, start, end, q}
+// kw: {status:[]|null, subtype, src, drug:[]|null, hospital:[]|null, pharmacy:[]|null, reason:[]|null, start, end, q}
 function filter_records(records, kw) {
   let recs = records;
-  const { status, subtype, src, drug, pharmacy, executor, reason, start, end, q } = kw;
+  const { status, subtype, src, drug, hospital, pharmacy, executor, reason, start, end, q } = kw;
   if (status && status.length) {
     const sset = new Set(status);
     recs = recs.filter(r => sset.has(r.medication_status));
@@ -1699,6 +1716,10 @@ function filter_records(records, kw) {
   if (drug && drug.length) {
     const dset = new Set(drug);
     recs = recs.filter(r => dset.has(r.drug_product || "未知"));
+  }
+  if (hospital && hospital.length) {
+    const hset = new Set(hospital);
+    recs = recs.filter(r => hset.has(r.hospital || "未知"));
   }
   if (pharmacy && pharmacy.length) {
     const pset = new Set(pharmacy);
@@ -1717,7 +1738,7 @@ function filter_records(records, kw) {
     const ql = q.trim().toLowerCase();
     if (ql) {
       recs = recs.filter(r => {
-        for (const f of ["patient_name", "phone", "pharmacy", "drug_product"]) {
+        for (const f of ["patient_name", "phone", "pharmacy", "hospital", "drug_product"]) {
           const v = r[f];
           if (v && String(v).toLowerCase().includes(ql)) return true;
         }
@@ -1745,6 +1766,7 @@ function _facet(records, kw, exclude) {
   else if (exclude === "subtype") k.subtype = null;
   else if (exclude === "source") k.src = null;
   else if (exclude === "drug") k.drug = null;
+  else if (exclude === "hospital") k.hospital = null;
   else if (exclude === "pharmacy") k.pharmacy = null;
   else if (exclude === "executor") k.executor = null;
   else if (exclude === "reason") k.reason = null;
@@ -1757,6 +1779,7 @@ function currentKw() {
     subtype: state.subtype || null,
     src: null,
     drug: state.drugs.size ? [...state.drugs] : null,
+    hospital: state.hospitals.size ? [...state.hospitals] : null,
     pharmacy: state.pharmacies.size ? [...state.pharmacies] : null,
     executor: state.executors.size ? [...state.executors] : null,
     reason: state.reasons.size ? [...state.reasons] : null,
@@ -1772,6 +1795,7 @@ function summaryLocal(kw) {
   base.by_subtype = build_summary(_facet(STORE.records, kw, "subtype")).by_subtype;
   base.by_source = build_summary(_facet(STORE.records, kw, "source")).by_source;
   base.by_drug = build_summary(_facet(STORE.records, kw, "drug")).by_drug;
+  base.by_hospital = build_summary(_facet(STORE.records, kw, "hospital")).by_hospital;
   base.by_pharmacy = build_summary(_facet(STORE.records, kw, "pharmacy")).by_pharmacy;
   base.by_executor = build_summary(_facet(STORE.records, kw, "executor")).by_executor;
   // 根本原因：排除自身筛选，使各分桶计数互相可见（与其它维度一致）
@@ -1787,7 +1811,8 @@ function summaryLocal(kw) {
 function patientsAgg(records, kw) {
   const status_sel = kw.status;
   const recs = filter_records(records, {
-    status: null, subtype: kw.subtype, src: kw.src, drug: kw.drug, pharmacy: kw.pharmacy,
+    status: null, subtype: kw.subtype, src: kw.src, drug: kw.drug,
+    hospital: kw.hospital, pharmacy: kw.pharmacy,
     start: null, end: null, q: kw.q,
   });
   const start = kw.start, end = kw.end;
@@ -1851,6 +1876,7 @@ function renderSummary(d) {
     };
   });
   buildMs("drugMs", d.by_drug, state.drugs, "药品");
+  buildMs("hospitalMs", d.by_hospital, state.hospitals, "医院");
   buildMs("pharmMs", d.by_pharmacy, state.pharmacies, "药店");
   buildMs("execMs", d.by_executor, state.executors, "执行人");
   // 导出脚注带上口径：根本原因这一栏的分子分母与其它维度不同，脱离界面后必须能自解释
@@ -2149,6 +2175,7 @@ function updateFilterInfo() {
   if (state.status.size) parts.push("用药状态=" + [...state.status].join("/"));
   if (state.subtype) parts.push("下钻=" + state.subtype);
   if (state.drugs.size) parts.push("药品=" + state.drugs.size + "项");
+  if (state.hospitals.size) parts.push("医院=" + state.hospitals.size + "项");
   if (state.pharmacies.size) parts.push("药店=" + state.pharmacies.size + "项");
   if (state.executors.size) parts.push("执行人=" + state.executors.size + "项");
   if (state.reasons.size) parts.push("根本原因=" + state.reasons.size + "项");
@@ -2725,7 +2752,8 @@ if (clearAllBtnEl) clearAllBtnEl.onclick = () => {
 /* ============ 筛选交互 ============ */
 $("#clearBtn").onclick = () => {
   state.status.clear(); state.subtype = null;
-  state.drugs.clear(); state.pharmacies.clear(); state.executors.clear(); state.reasons.clear();
+  state.drugs.clear(); state.hospitals.clear();
+  state.pharmacies.clear(); state.executors.clear(); state.reasons.clear();
   state.start = state.end = null; state.q = ""; state.page = 1;
   $("#searchInput").value = ""; $("#startDate").value = ""; $("#endDate").value = "";
   refresh();
@@ -2764,6 +2792,7 @@ function togglePanel(panel) {
   if (!open) panel.classList.remove("hidden");
 }
 $("#drugMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#drugMsPanel")); };
+$("#hospitalMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#hospitalMsPanel")); };
 $("#pharmMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#pharmMsPanel")); };
 $("#execMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#execMsPanel")); };
 $("#reasonMsBtn").onclick = e => { e.stopPropagation(); togglePanel($("#reasonMsPanel")); };
@@ -2970,6 +2999,7 @@ function scopeLines(kw) {
   if (kw.status && kw.status.length) out.push("用药状态 = " + kw.status.join("、"));
   if (kw.subtype) out.push("不规范下钻 = " + kw.subtype);
   if (kw.drug && kw.drug.length) out.push("药品 = " + kw.drug.join("、"));
+  if (kw.hospital && kw.hospital.length) out.push("医院 = " + kw.hospital.join("、"));
   if (kw.pharmacy && kw.pharmacy.length) out.push("药店 = " + kw.pharmacy.join("、"));
   if (kw.executor && kw.executor.length) out.push("执行人 = " + kw.executor.join("、"));
   if (kw.reason && kw.reason.length) out.push("根本原因 = " + kw.reason.join("、"));
@@ -2994,7 +3024,7 @@ const SNAP_CLEAR_SELECTORS = [
   "#donutChart", "#drugChart", "#trendChart",      // 三张图表
   "#reasonChart", "#reasonSub", "#reasonFoot",     // 根本原因图（分面：含范围外的桶）
   "#subtypeChips", "#filterInfo",                  // 下钻胶囊 / 生效筛选条件
-  "#drugMsList", "#pharmMsList", "#execMsList", "#reasonMsList",   // 四个筛选面板的取值列表（分面：含范围外取值）
+  "#drugMsList", "#hospitalMsList", "#pharmMsList", "#execMsList", "#reasonMsList",   // 筛选面板的取值列表（分面：含范围外取值）
   "#fileChips",                                    // 文件清单（含被筛掉的文件名与条数）
   "#thead", "#tbody", "#pagination",               // 明细表
   "#patientView",                                  // 患者视图卡片
@@ -3191,11 +3221,12 @@ function loadSnapshot(snap) {
 // 素材是一份内置的「虚构」随访表，走与真实上传**完全相同**的解析路径
 //（SheetJS 生成 xlsx → File → Pipeline.processFiles），所以教程里看到的分布、
 //  状态判定、根本原因分桶都是真实算出来的，映射规则演进时教程不会失真。
-const DEMO_HEADERS = ["患者姓名", "联系电话", "药品名称", "适应症", "药店名称", "执行人",
+const DEMO_HEADERS = ["患者姓名", "联系电话", "药品名称", "适应症", "确诊医院", "药店名称", "执行人",
   "任务状态", "执行时间", "用药周期状态", "未按计划持续用药原因", "用药依从性", "备注"];
 const DEMO_SHEET = "入组随访（示例）";
 const DEMO_FILE = "示例数据_入组随访（虚构，仅供教程）.xlsx";
 const DEMO_DRUGS = ["百泽安", "百悦泽", "索托克拉"];
+const DEMO_HOSPS = ["示例市第一医院", "示例市中心医院", "示例市人民医院"];
 const DEMO_PHARMS = ["阳光大药房（示例）", "康泰药房（示例）", "惠民药房（示例）"];
 const DEMO_EXECS = ["张护士", "李药师", "王随访"];
 const DEMO_INDICATIONS = ["非小细胞肺癌", "肝细胞癌", "尿路上皮癌", "套细胞淋巴瘤", "华氏巨球蛋白血症"];
@@ -3242,6 +3273,7 @@ function demoRows() {
         "138" + String(10000000 + n * 137).slice(-8),
         DEMO_DRUGS[n % 3],
         DEMO_INDICATIONS[n % 5],
+        DEMO_HOSPS[n % 3],
         DEMO_PHARMS[n % 3],
         DEMO_EXECS[n % 3],
         p.task || "已完成",
@@ -3452,7 +3484,7 @@ function tutSteps() {
       body: `此处可以点击筛选：自由填写的原因已自动归为 13 类，点条形下钻。` },
 
     { sel: ".filterbar", t: "统一筛选栏",
-      body: `此处可以点击筛选：药品、药店、执行人、原因、时间，均可多选。` },
+      body: `此处可以点击筛选：药品、医院、药店、执行人、原因、时间，均可多选。` },
 
     { sel: "#reportCard", t: "分析小结",
       body: `此处可以选择品种：勾选要汇报的品种，小结按品种分段，再一键复制。` },
@@ -3539,7 +3571,7 @@ async function tutGo(i) {
 function tutSnapshotState() {
   return {
     status: [...state.status], subtype: state.subtype,
-    drugs: [...state.drugs], pharmacies: [...state.pharmacies],
+    drugs: [...state.drugs], hospitals: [...state.hospitals], pharmacies: [...state.pharmacies],
     executors: [...state.executors], reasons: [...state.reasons],
     reportDrugs: state.reportDrugs ? [...state.reportDrugs] : null,
     start: state.start, end: state.end, q: state.q, page: state.page, view: state.view,
@@ -3550,7 +3582,8 @@ async function tutRestoreState() {
   const s = TUT.snap;
   if (!s) return;
   state.status = new Set(s.status); state.subtype = s.subtype || null;
-  state.drugs = new Set(s.drugs); state.pharmacies = new Set(s.pharmacies);
+  state.drugs = new Set(s.drugs); state.hospitals = new Set(s.hospitals || []);
+  state.pharmacies = new Set(s.pharmacies);
   state.executors = new Set(s.executors); state.reasons = new Set(s.reasons);
   state.reportDrugs = s.reportDrugs ? new Set(s.reportDrugs) : null;
   state.start = s.start; state.end = s.end; state.q = s.q;
