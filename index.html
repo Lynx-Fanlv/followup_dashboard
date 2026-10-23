@@ -1370,6 +1370,27 @@ function classifyOtherStatus(rec, row, colmap) {
   return null;
 }
 
+// 备注去重用的归一化：「患者反馈内容」与「用药体验」「主诉」等列常是同一段话的
+// 摘要/原文关系（一列完整包含另一列），换行拼接后同一句会出现两遍。
+// 只抹空白与标点，不动文字本身，保证仍能识别「甲包含乙」。
+const RE_REMARK_PUNCT = /[\s\u3000，,。.、;；：:！!？?（）()\[\]【】"'“”‘’\-—_\/\\|~～…]/g;
+function remarkKey(s) {
+  return String(s == null ? "" : s).replace(RE_REMARK_PUNCT, "");
+}
+// 往备注片段里追加一条，自动处理「重复 / 被包含 / 更完整」三种关系：
+// 已覆盖 → 丢弃；新值更完整 → 替换旧片段；否则追加。
+function pushRemarkPart(parts, v) {
+  const k = remarkKey(v);
+  if (!k) return;
+  for (let i = 0; i < parts.length; i++) {
+    const ki = remarkKey(parts[i]);
+    if (!ki) continue;
+    if (ki === k || ki.indexOf(k) >= 0) return;
+    if (k.indexOf(ki) >= 0) { parts[i] = v; return; }
+  }
+  parts.push(v);
+}
+
 function normalizeRows(rows, cols, sourceFile, sheetName) {
   const colmap = mapColumns(cols);
   const fileSource = detectSource(cols, colmap);
@@ -1408,7 +1429,7 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
     // 仅当两者都空（或全是占位值）时，才回退取「随访小结」列内容——小结是结构化模板文字。
     let rcols = asList(colmap.remarks).filter(c => c != null);
     const parts = [];
-    for (const c of rcols) { const tv = cellStr(row[c]); if (tv && !M.isPlaceholder(tv)) parts.push(tv); }
+    for (const c of rcols) { const tv = cellStr(row[c]); if (tv && !M.isPlaceholder(tv)) pushRemarkPart(parts, tv); }
     let remarks = parts.length ? parts.join("\n") : null;
     if (!remarks && custom && custom.remarks.length) remarks = custom.remarks.join("\n");
     if (!remarks && colmap.summary != null) {
