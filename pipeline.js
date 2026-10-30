@@ -27,13 +27,40 @@ function fmtDateTime(d) {
   return (h === "00" && mi === "00" && s === "00") ? date : `${date} ${h}:${mi}:${s}`;
 }
 
+// 「末次购药时间」只要日期，统一成 YYYY-MM-DD：
+// 底表这一列多数是带时分秒的日期单元格（如 2026-01-19 15:21:05），也有写成 2026/1/19、
+// 2026年1月19日、或未被识别为日期格式的 Excel 序列号（45678）的情况，逐种兜底。
+// 认不出的值（「不详」「未购药」等原文）原样保留，不做臆造。
+function dateOnly(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (m) return `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`;
+  m = s.match(/^(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?/);
+  if (m) return `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`;
+  if (/^\d{5}(\.\d+)?$/.test(s)) {
+    const n = Number(s);
+    if (n > 20000 && n < 80000) {
+      const d = XLSX && XLSX.SSF && XLSX.SSF.parse_date_code ? XLSX.SSF.parse_date_code(n) : null;
+      if (d && d.y) return `${d.y}-${pad2(d.m)}-${pad2(d.d)}`;
+    }
+  }
+  return s;
+}
+
 // 单值字段关键字启发式映射；followup_time 需区分「执行时间」与「计划执行时间」
 // 返回值统一为「列索引」（或索引数组），下游按索引读取，避免多模板合并表中重名列互相覆盖。
 function mapColumns(rawCols) {
   const assigned = {};
   const used = new Set();
+  // 购药三字段是「展示用」字段，允许与其它字段共用同一列：
+  // 很多「用药情况」类底表没有「执行时间」，followup_time 会退而取「末次购药日期」，
+  // 若这里也受 used 限制就永远拿不到值。反过来也不让它们占用列，避免影响其它字段的历史口径。
+  const SHARED = new Set(["last_purchase_time", "total_purchase_qty", "last_purchase_qty"]);
   for (const [field, kws] of M.KEYWORD_RULES) {
     const isCollective = field.charAt(0) === "_";
+    const isShared = SHARED.has(field);
     let cand;
     if (field === "followup_time") {
       const clean = [];
@@ -44,7 +71,7 @@ function mapColumns(rawCols) {
       const base = clean.length ? clean : rawCols.map((rc, idx) => [idx, normHeader(rc)]);
       cand = base.filter(([idx]) => !used.has(idx));
     } else {
-      cand = rawCols.map((rc, idx) => [idx, normHeader(rc)]).filter(([idx]) => !used.has(idx));
+      cand = rawCols.map((rc, idx) => [idx, normHeader(rc)]).filter(([idx]) => isShared || !used.has(idx));
     }
     if (isCollective) {
       // 多模板合并表：同一逻辑字段可能有多个列副本（如「是否计划按时用药?」出现 3 次），
@@ -204,6 +231,8 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
         rec[field] = cellStr(row[col]);
       }
     }
+    // 「末次购药时间」统一成日期（去掉时分秒），口径见 dateOnly() 注释
+    rec.last_purchase_time = dateOnly(rec.last_purchase_time);
     // 「自定义随访内容」压缩 JSON 列（题目 name + 回答 value）：
     // 主表对应列全空时，用其中的「患者反馈/本次随访概述/此次随访汇总/情况备注…」
     // 补入备注，「脱落原因/未复购原因/当期未复购…」补入停药减量根本原因。

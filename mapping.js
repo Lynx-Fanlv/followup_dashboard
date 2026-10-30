@@ -5,6 +5,7 @@ const CANONICAL_FIELDS = [
   "source_file", "source_type", "task_status",
   "patient_name", "patient_id", "phone", "gender", "age",
   "followup_time", "task_type", "drug_product", "indication", "hospital", "pharmacy", "executor",
+  "last_purchase_time", "total_purchase_qty", "last_purchase_qty",
   "is_key_patient", "medication_status", "irregularity_subtype",
   "stop_reduce_reason",
   "adherence", "summary", "remarks",
@@ -40,6 +41,20 @@ const KEYWORD_RULES = [
   ["age",           ["年龄", "岁", "age"]],
   ["followup_time", ["随访时间", "随访日期", "购药日期", "执行时间", "计划执行",
                      "记录时间", "回访日期", "日期", "时间"]],
+  // —— 购药三字段（仅展示，不参与筛选/统计）——
+  // 实测 663 个历史表格里 140 个随访类 sheet：同一语义在不同模板叫法不同，故按别名兜底，
+  // 每个 sheet 取命中关键字最多的一列（mapColumns 打分）。
+  //   末次购药时间：末次购药日期(50 个 sheet, 非空 93%) / 最近购药时间(10, 100%) / 末次购药时间(1, 100%)
+  //   累计购药数量：累计用药数量(60, 87%) / 累计购药数量(1, 100%)
+  //   末次购药数量：末次购药数量(51, 93%) / 最近购药数量(10, 100%)
+  // 必须排在 followup_time 之后：followup_time 的候选池含「日期/时间」关键字，若先占位会抢走
+  // 「末次购药日期」这类列，改变既有随访时间口径（时间筛选、趋势图都依赖它）。
+  ["last_purchase_time", ["末次购药时间", "末次购药日期", "最近购药时间", "最近购药日期",
+                          "最近一次购药时间", "最近一次购药日期", "最后一次购药时间",
+                          "上次购药时间", "最近一次门店购药时间"]],
+  ["total_purchase_qty", ["累计购药数量", "累计用药数量", "累计购药盒数", "累计购买数量"]],
+  ["last_purchase_qty",  ["末次购药数量", "末次购药盒数", "最近购药数量", "最近一次购药盒数",
+                          "最近一次门店购药盒数", "最后一次购药数量"]],
   ["drug_product",  ["药品名称", "药物", "药品", "产品", "商品"]],
   ["indication",    ["适应症", "病种", "诊断", "病症"]],
   // 医院 = 只认「确诊医院」这一列。

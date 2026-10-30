@@ -632,6 +632,7 @@ const CANONICAL_FIELDS = [
   "source_file", "source_type", "task_status",
   "patient_name", "patient_id", "phone", "gender", "age",
   "followup_time", "task_type", "drug_product", "indication", "hospital", "pharmacy", "executor",
+  "last_purchase_time", "total_purchase_qty", "last_purchase_qty",
   "is_key_patient", "medication_status", "irregularity_subtype",
   "stop_reduce_reason",
   "adherence", "summary", "remarks",
@@ -667,6 +668,20 @@ const KEYWORD_RULES = [
   ["age",           ["年龄", "岁", "age"]],
   ["followup_time", ["随访时间", "随访日期", "购药日期", "执行时间", "计划执行",
                      "记录时间", "回访日期", "日期", "时间"]],
+  // —— 购药三字段（仅展示，不参与筛选/统计）——
+  // 实测 663 个历史表格里 140 个随访类 sheet：同一语义在不同模板叫法不同，故按别名兜底，
+  // 每个 sheet 取命中关键字最多的一列（mapColumns 打分）。
+  //   末次购药时间：末次购药日期(50 个 sheet, 非空 93%) / 最近购药时间(10, 100%) / 末次购药时间(1, 100%)
+  //   累计购药数量：累计用药数量(60, 87%) / 累计购药数量(1, 100%)
+  //   末次购药数量：末次购药数量(51, 93%) / 最近购药数量(10, 100%)
+  // 必须排在 followup_time 之后：followup_time 的候选池含「日期/时间」关键字，若先占位会抢走
+  // 「末次购药日期」这类列，改变既有随访时间口径（时间筛选、趋势图都依赖它）。
+  ["last_purchase_time", ["末次购药时间", "末次购药日期", "最近购药时间", "最近购药日期",
+                          "最近一次购药时间", "最近一次购药日期", "最后一次购药时间",
+                          "上次购药时间", "最近一次门店购药时间"]],
+  ["total_purchase_qty", ["累计购药数量", "累计用药数量", "累计购药盒数", "累计购买数量"]],
+  ["last_purchase_qty",  ["末次购药数量", "末次购药盒数", "最近购药数量", "最近一次购药盒数",
+                          "最近一次门店购药盒数", "最后一次购药数量"]],
   ["drug_product",  ["药品名称", "药物", "药品", "产品", "商品"]],
   ["indication",    ["适应症", "病种", "诊断", "病症"]],
   // 医院 = 只认「确诊医院」这一列。
@@ -1252,13 +1267,40 @@ function fmtDateTime(d) {
   return (h === "00" && mi === "00" && s === "00") ? date : `${date} ${h}:${mi}:${s}`;
 }
 
+// 「末次购药时间」只要日期，统一成 YYYY-MM-DD：
+// 底表这一列多数是带时分秒的日期单元格（如 2026-01-19 15:21:05），也有写成 2026/1/19、
+// 2026年1月19日、或未被识别为日期格式的 Excel 序列号（45678）的情况，逐种兜底。
+// 认不出的值（「不详」「未购药」等原文）原样保留，不做臆造。
+function dateOnly(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (m) return `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`;
+  m = s.match(/^(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?/);
+  if (m) return `${m[1]}-${pad2(m[2])}-${pad2(m[3])}`;
+  if (/^\d{5}(\.\d+)?$/.test(s)) {
+    const n = Number(s);
+    if (n > 20000 && n < 80000) {
+      const d = XLSX && XLSX.SSF && XLSX.SSF.parse_date_code ? XLSX.SSF.parse_date_code(n) : null;
+      if (d && d.y) return `${d.y}-${pad2(d.m)}-${pad2(d.d)}`;
+    }
+  }
+  return s;
+}
+
 // 单值字段关键字启发式映射；followup_time 需区分「执行时间」与「计划执行时间」
 // 返回值统一为「列索引」（或索引数组），下游按索引读取，避免多模板合并表中重名列互相覆盖。
 function mapColumns(rawCols) {
   const assigned = {};
   const used = new Set();
+  // 购药三字段是「展示用」字段，允许与其它字段共用同一列：
+  // 很多「用药情况」类底表没有「执行时间」，followup_time 会退而取「末次购药日期」，
+  // 若这里也受 used 限制就永远拿不到值。反过来也不让它们占用列，避免影响其它字段的历史口径。
+  const SHARED = new Set(["last_purchase_time", "total_purchase_qty", "last_purchase_qty"]);
   for (const [field, kws] of M.KEYWORD_RULES) {
     const isCollective = field.charAt(0) === "_";
+    const isShared = SHARED.has(field);
     let cand;
     if (field === "followup_time") {
       const clean = [];
@@ -1269,7 +1311,7 @@ function mapColumns(rawCols) {
       const base = clean.length ? clean : rawCols.map((rc, idx) => [idx, normHeader(rc)]);
       cand = base.filter(([idx]) => !used.has(idx));
     } else {
-      cand = rawCols.map((rc, idx) => [idx, normHeader(rc)]).filter(([idx]) => !used.has(idx));
+      cand = rawCols.map((rc, idx) => [idx, normHeader(rc)]).filter(([idx]) => isShared || !used.has(idx));
     }
     if (isCollective) {
       // 多模板合并表：同一逻辑字段可能有多个列副本（如「是否计划按时用药?」出现 3 次），
@@ -1429,6 +1471,8 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
         rec[field] = cellStr(row[col]);
       }
     }
+    // 「末次购药时间」统一成日期（去掉时分秒），口径见 dateOnly() 注释
+    rec.last_purchase_time = dateOnly(rec.last_purchase_time);
     // 「自定义随访内容」压缩 JSON 列（题目 name + 回答 value）：
     // 主表对应列全空时，用其中的「患者反馈/本次随访概述/此次随访汇总/情况备注…」
     // 补入备注，「脱落原因/未复购原因/当期未复购…」补入停药减量根本原因。
@@ -1572,6 +1616,9 @@ const EXPORT_COLS = [
   ["drug_product", "药品"],
   ["indication", "适应症"],
   ["hospital", "医院"],
+  ["last_purchase_time", "末次购药时间"],
+  ["total_purchase_qty", "累计购药数量"],
+  ["last_purchase_qty", "末次购药数量"],
   ["pharmacy", "药店"],
   ["executor", "执行人"],
   ["medication_status_raw", "用药状态"],
@@ -1592,7 +1639,9 @@ const SRC_LABEL = { routine: "日常随访", enrollment: "入组", overdue_purch
 const STATUS_COLOR = { "规范用药": "#0f9d6b", "不规范用药": "#e03131", "脱落停药": "#e8590c", "其他": "#868e96" };
 const DETAIL = [["patient_name", "患者"], ["phone", "电话"], ["gender", "性别"], ["age", "年龄"],
   ["followup_time", "随访时间"], ["drug_product", "药品"], ["indication", "适应症"],
-  ["hospital", "医院"], ["pharmacy", "药店"], ["executor", "执行人"],
+  ["hospital", "医院"],
+  ["last_purchase_time", "末次购药时间"], ["total_purchase_qty", "累计购药数量"], ["last_purchase_qty", "末次购药数量"],
+  ["pharmacy", "药店"], ["executor", "执行人"],
   ["medication_status_raw", "用药状态"],
   ["irregularity_subtype", "不规范类型"],
   ["stop_reduce_reason", "停药/减量根本原因"], ["reason_bucket", "根本原因分类"],
@@ -1601,7 +1650,10 @@ const DETAIL = [["patient_name", "患者"], ["phone", "电话"], ["gender", "性
 const state = { status: new Set(), subtype: null, drugs: new Set(), hospitals: new Set(),
   pharmacies: new Set(), executors: new Set(),
   reasons: new Set(), start: null, end: null,
-  q: "", view: "detail", page: 1, pageSize: 50, hiddenCols: new Set(),
+  q: "", view: "detail", page: 1, pageSize: 50,
+  // 列显隐：默认不收「药店 / 执行人 / 用法用量」三列（横向太长，且多数汇报用不到），
+  // 需要时在「列显隐」里勾回来即可 —— 只是默认视图，数据本身和导出明细都不受影响。
+  hiddenCols: new Set(["pharmacy", "executor", "dosage_raw"]),
   // 分析小结的「品种」选择：null = 用户尚未选择（卡片显示示例），Set = 用户已选（空集也算已选）
   reportDrugs: null,
   plainName: false, plainPhone: false };
@@ -3221,7 +3273,8 @@ function loadSnapshot(snap) {
 // 素材是一份内置的「虚构」随访表，走与真实上传**完全相同**的解析路径
 //（SheetJS 生成 xlsx → File → Pipeline.processFiles），所以教程里看到的分布、
 //  状态判定、根本原因分桶都是真实算出来的，映射规则演进时教程不会失真。
-const DEMO_HEADERS = ["患者姓名", "联系电话", "药品名称", "适应症", "确诊医院", "药店名称", "执行人",
+const DEMO_HEADERS = ["患者姓名", "联系电话", "药品名称", "适应症", "确诊医院",
+  "末次购药日期", "累计用药数量", "末次购药数量", "药店名称", "执行人",
   "任务状态", "执行时间", "用药周期状态", "未按计划持续用药原因", "用药依从性", "备注"];
 const DEMO_SHEET = "入组随访（示例）";
 const DEMO_FILE = "示例数据_入组随访（虚构，仅供教程）.xlsx";
@@ -3268,12 +3321,18 @@ function demoRows() {
       const hh = 9 + (n % 8);
       const date = `2026-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")} `
         + `${String(hh).padStart(2, "0")}:${n % 2 ? "30" : "00"}`;
+      // 末次购药日期比随访日早几天（同月内往前推，避免跨月拼接的日期算术）
+      const buyDay = Math.max(1, day - 5);
+      const buyDate = `2026-${String(month).padStart(2, "0")}-${String(buyDay).padStart(2, "0")}`;
       rows.push([
         "示例患者" + String(n).padStart(2, "0"),
         "138" + String(10000000 + n * 137).slice(-8),
         DEMO_DRUGS[n % 3],
         DEMO_INDICATIONS[n % 5],
         DEMO_HOSPS[n % 3],
+        empty ? "" : buyDate,
+        empty ? "" : String(3 + (n % 9)),
+        empty ? "" : String(1 + (n % 3)),
         DEMO_PHARMS[n % 3],
         DEMO_EXECS[n % 3],
         p.task || "已完成",
