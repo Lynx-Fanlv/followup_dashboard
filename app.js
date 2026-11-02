@@ -638,7 +638,7 @@ function updateFilterInfo() {
 // 数据范围 = 当前筛选结果，与「导出明细」「下载快照」共用同一套 filter_records，口径完全一致。
 // 每个品种自成一段，段内给出用药状态四态条数，并追加该品种「脱落停药」的根本原因分布
 // （与「停药／减量根本原因」卡片同口径：仅统计任务状态＝已完成，且剔除误入原因列的非停减描述）。
-// 首行按「任务状态」拆分（已完成 / 脱落·改期），**恒为当前筛选全量**，作为整体背景；
+// 首行按「任务状态」拆分（已完成 + 其余状态各自单列，如忽略 / 已改期 / 待执行），**恒为当前筛选全量**，作为整体背景；
 // 品种段落只写「用户勾选的品种」——一次导入几十个品种时，全量铺开会把卡片撑到几千像素。
 // 未勾选品种时显示「XX品种」的格式示例（复制按钮同时禁用，避免把示例文字当数据外发）。
 const REPORT = { text: "", demo: false, demoHint: "", demoText: "" };
@@ -739,8 +739,18 @@ function reportText(recs, kw, sel) {
   const total = recs.length;
   const done = recs.filter(isDoneTask).length;
   const range = reportRange(recs, kw);
+  // 未完成的任务按**真实状态**分列（忽略 / 已改期 / 待执行…），不再笼统写成「脱落/改期」：
+  // 底表里「忽略」既不等于脱落也不等于改期，混写会让人把没做的任务读成脱落
+  //（达州 10.23 实测：已完成 350 / 忽略 31 / 已改期 42，旧文案把 73 条全写成「脱落/改期」）。
+  // 状态取值按条数降序，同数量按名称稳定排序；空值单列「未填写」。
+  const pending = Object.entries(countBy(
+    recs.filter(r => !isDoneTask(r)),
+    r => String(r.task_status || "").trim() || "未填写"
+  )).sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), "zh"));
   const head = (range ? "【" + range + "】期间，" : "")
-    + "共计随访 " + total + " 条，其中已完成 " + done + " 条，脱落/改期 " + (total - done) + " 条。";
+    + "共计随访 " + total + " 条，其中已完成 " + done + " 条"
+    + (pending.length ? "，" + pending.map(([k, v]) => k + " " + v + " 条").join("，") : "")
+    + "。";
   // 品种顺序：条数由多到少（同数量按名称稳定排序），便于横向对照
   const groups = {};
   for (const r of recs) {
