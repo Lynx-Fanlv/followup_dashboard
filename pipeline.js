@@ -279,7 +279,7 @@ function normalizeRows(rows, cols, sourceFile, sheetName) {
     // 「停药/减量根本原因」归一化分桶：自由文本 → 固定桶（原文仍完整保留在上面）
     rec.reason_bucket = M.classifyReason(rec.stop_reduce_reason);
     // 用药状态 + 不规范下钻
-    const status = M.deriveStatus(sourceType, row, colmap);
+    const status = M.deriveStatus(sourceType, row, colmap, remarks);
     rec.medication_status = status;
     rec.medication_status_raw = M._rawStatusText(sourceType, row, colmap) || status;
     const sub = status === "不规范用药" ? M.deriveIrregularitySubtype(sourceType, row, colmap)

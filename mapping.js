@@ -11,7 +11,9 @@ const CANONICAL_FIELDS = [
   "adherence", "summary", "remarks",
 ];
 
-const STATUS_TAXONOMY = ["规范用药", "不规范用药", "脱落停药", "其他"];
+// 「联系失败」是第五个状态（2026-11-17 用户拍板）：与四态并列，排在「脱落停药」之后。
+// 它承接的是「这次没联系上」这类记录——既不是规范/不规范，也还没到脱落。
+const STATUS_TAXONOMY = ["规范用药", "不规范用药", "脱落停药", "联系失败", "其他"];
 const SUBTYPE_TAXONOMY = ["自行减量", "医嘱减量", "医嘱停药", "延迟/未按时用药", "其他不规范"];
 
 // 小卡「专项原文」：按随访项目展示各自的结构化原列（真实列名 + 原值，不读随访小结自由文本）。
@@ -253,6 +255,31 @@ function isStopText(v) {
   return /停用|停药|停[／/]换|换药|转药|换方案|改方案|转渠道/.test(v);
 }
 
+/* ============ 「联系失败」判定（2026-11-17 用户口径，两轮收敛后的最终版） ============
+   同一个「随访失败 / 联系失败」，在不同药师笔下是两种东西：
+     · 过程：这次没打通，还要再联系（"未接，需要再次随访"）
+     · 结论：真的脱落了，于是写成"联系不上，已脱落"
+   最终口径（用户第二次收敛）：
+     **只有明确写了「脱落」（同义结论「失访」）才算脱落**；
+     其余一切联系类表述——未接、无人接听、关机、挂断、拒接、拒绝随访、
+     空号、停机、电话错误、号码变更、连续 N 月联系不上、已过用药周期——
+     一律归「联系失败」。
+   理由：号码作废不等于药师已判定脱落，是否脱落必须由人明确记录；
+   这样既不会把「联系失败」误升级成脱落，也不会因为两种记录习惯不同而各算一套。
+   各品种模板的措辞差异，由下面两个正则的同义词面覆盖，不给用户加配置项。 */
+const RE_CONTACT_DROP = /脱落|失访/;          // 明确结论，才升级为脱落
+const RE_NEG_DROP = /未脱落|没有脱落|不(是|算|考虑)脱落|排除脱落|非脱落/;  // "未脱落"不能被误判
+const RE_CONTACT_ANY = /未接|无人接听|未接通|未拨通|打不通|关机|占线|挂断|挂电话|拒接|拒绝随访|拒访|联系不上|失联|无法联系|联系未果|联系失败|电话不接|未随访到|随访失败|未联系上|电话无人|空号|停机|电话错误|电话号码(错|不对)|号码(变更|错误|不对)|换号|打错|不是患者|不认识患者|已过用药周期|连续\s*[两三四五六七八九十\d]+\s*(个)?\s*(月|周期|次)|(长期|始终|一直|多次|反复|持续)\s*(联系不上|联系不到|失联|未接|未拨通|无法联系|拒接|拒绝)/;
+// 返回 "脱落停药" / "联系失败" / null（文本里没有联系类信息）
+function classifyContactOutcome(text) {
+  const s = String(text == null ? "" : text);
+  if (!s) return null;
+  if (RE_CONTACT_DROP.test(s) && !RE_NEG_DROP.test(s)) return "脱落停药";
+  if (RE_CONTACT_ANY.test(s)) return "联系失败";
+  return null;
+}
+
+
 // 「用药周期状态」取值 → 状态（enrollment 两层判定的第二层；独立成函数便于单测与复用）。
 // 【顺序很关键】先判脱落，再判不规范，最后才判规范——
 // 「持续用药中--流失」同时含「持续用药」与「流失」，必须被流失规则先拦下。
@@ -263,13 +290,18 @@ function classifyPeriodStatus(v) {
   // 「暂停用药」必须先判：字面上含「停用」，否则会被下面的脱落规则误吞。
   // 按用户口径，暂停 = 不规范用药（与 routine 分支「延迟/暂停/推迟 → 不规范」一致）。
   if (/暂停/.test(s)) return "不规范用药";
-  if (/停药|停用|停止|脱落|流失|随访失败|转渠道|转院|院内购药|换药|转药|去世|死亡/.test(s)) return "脱落停药";
+  // 「随访失败」不再一刀切算脱落（可能只是这次没联系上）→ 交 classifyContactOutcome 按信号强度判
+  if (/随访失败/.test(s) && !/停药|停用|停止|脱落|流失/.test(s)) return null;
+  if (/停药|停用|停止|脱落|流失|转渠道|转院|院内购药|换药|转药|去世|死亡/.test(s)) return "脱落停药";
   if (/减量|减药|推迟|延迟|提前|改变用药(间隔|剂量|时间)|拉长|未规范|不依从|不规律|未按时|未复购/.test(s)) return "不规范用药";
   if (/按计划|持续用药|正常用药/.test(s)) return "规范用药";
   return null;
 }
 
-function deriveStatus(sourceType, row, colmap) {
+// extraText：调用方算好的备注全文（含「自定义随访内容」提取出的问答）。
+// 联系类判定要看备注里的「连续两个月联系不上 / 空号」等结论性描述，而这些常写在自定义问答里，
+// 只读 colmap.remarks 会漏，所以由 pipeline 把最终的 rec.remarks 传进来。
+function deriveStatus(sourceType, row, colmap, extraText) {
   const g = f => _gtext(row, colmap, f);
   const has = f => Boolean(g(f));
 
@@ -278,7 +310,14 @@ function deriveStatus(sourceType, row, colmap) {
     // 第一层：精确白名单。已知枚举值最可靠，优先判。
     if (v === "按计划持续用药") return "规范用药";
     if (v === "延迟用药" || v === "推迟购药" || v === "未按计划持续用药-不依从") return "不规范用药";
-    if (v === "停药----脱落" || v === "随访失败") return "脱落停药";
+    if (v === "停药----脱落") return "脱落停药";
+    // 「随访失败」：原表这一项被不同药师当成两种意思用（这次没打通 / 到此为止），
+    // 不能再直接算脱落。用同一行的原因 + 备注按信号强度判：
+    // 连续 N 月、长期联系不上、空号停机 → 脱落；其余（未接、拒访…）→ 联系失败。
+    if (/随访失败/.test(v)) {
+      const c = classifyContactOutcome([v, g("stop_reduce_reason"), g("remarks"), extraText || ""].join("\n"));
+      return c || "联系失败";
+    }
     // 第二层：按「用药周期状态」取值本身做关键词判定（两层判定）。
     // 原因：该列实测有 20+ 种取值，且随模板演进还会新增；只做精确白名单时，
     // 未收录的取值会直接掉到第三层，而第三层只读「停药/减量根本原因」文本，
@@ -288,7 +327,11 @@ function deriveStatus(sourceType, row, colmap) {
     if (byKw) return byKw;
     // 第三层：取值本身无信息（如"其它""其他原因"）时，按根因文本 / 依从性列推断
     const reason = g("stop_reduce_reason") || "";
-    if (isStopText(reason) || /流失|拒接|未拨通|拒绝随访|脱落/.test(reason)) return "脱落停药";
+    // 联系类文本先判：强信号（连续/长期/空号）→ 脱落，一般（未接/拒接）→ 联系失败。
+    // 原逻辑把「拒接 / 未拨通」一律算脱落，正是「联系失败被当成脱落」的另一处来源。
+    const contact = classifyContactOutcome(reason);
+    if (contact) return contact;
+    if (isStopText(reason) || /流失|脱落/.test(reason)) return "脱落停药";
     if (/减量|延迟|推迟|不依从|不规律|减药/.test(reason)) return "不规范用药";
     const adh = g("adherence") || "";
     if (adh.includes("良好") || adh.includes("遵医嘱")) return "规范用药";
@@ -302,7 +345,9 @@ function deriveStatus(sourceType, row, colmap) {
       if (/规范用药|正常用药|按医嘱/.test(cur)) return "规范用药";
       if (/减量/.test(cur)) return "不规范用药";
       if (/延迟|暂停|推迟|未按时/.test(cur)) return "不规范用药";
-      // 「未随访到」「其他:…」等非状态结论：不解析自由文本，保留「其他」
+      // 「未随访到」属于联系失败（没联系上，不是用药结论）；其余「其他:…」保留「其他」
+      if (/未随访到|未联系上|随访失败|联系不上|未接通|未接/.test(cur)) return "联系失败";
+      // 「其他:…」等非状态结论：不解析自由文本，保留「其他」
       return "其他";
     }
     // 优先用「是否计划按时用药?」等状态列（真实主力表列名）
@@ -316,6 +361,8 @@ function deriveStatus(sourceType, row, colmap) {
       if (/按时|按医嘱正常|正常用药/.test(usage)) return "规范用药";
       // 取值无法识别（如「其他:自由文本」）：不解析自由文本，改用行内结构化字段判定
       const dr = g("_dropout_reason") || "";
+      const cDr = classifyContactOutcome(dr);
+      if (cDr) return cDr;
       if (/转渠道|转院|停药|换药|停用/.test(dr)) return "脱落停药";
       if (/延迟|推迟|未按时/.test(dr)) return "不规范用药";
       if (/减量|减药/.test(dr)) return "不规范用药";
@@ -327,6 +374,10 @@ function deriveStatus(sourceType, row, colmap) {
       // 「用法用量」列明确足量/规范 → 规范用药（结构化字段，优先于「其他」兜底，不读随访小结）
       const d1 = g("_dosage");
       if (d1 && /足量|全量|完整|正常用药|按医嘱正常/.test(d1)) return "规范用药";
+      // 结构化字段都判不出来时，再看原因列有没有联系类信息：命中即联系失败（或强信号→脱落），
+      // 避免"没联系上"被兜进「其他」。
+      const cU = classifyContactOutcome(g("stop_reduce_reason"));
+      if (cU) return cU;
       return "其他";
     }
     // 回退：分级示例的「非标准用法用量的类型」
@@ -345,6 +396,8 @@ function deriveStatus(sourceType, row, colmap) {
       if (/延迟|推迟|延后|未按时/.test(near)) return "不规范用药";
       if (/减量|减药/.test(near)) return "不规范用药";
       // 「其他:自由文本原因」（如去世/更换医院/未拿药）不解析自由文本，保留「其他」
+      const cNear = classifyContactOutcome(g("stop_reduce_reason"));
+      if (cNear) return cNear;
       return "其他";
     }
     // 「是否还在按照处方继续使用（百泽安/百悦泽）？」脱落预警模板专用状态列：
@@ -380,13 +433,17 @@ function deriveStatus(sourceType, row, colmap) {
         && !isStopText(g("stop_reduce_reason")) && !g("_nonstd_usage")) return "规范用药";
     // 状态判定完全基于原始文件的结构化专用列；若以上所有结构化字段均无有效信息，返回「其他」。
     // （不读取「随访小结」自由文本作状态判定，以免与结构化结论冲突）
+    const cAll = classifyContactOutcome(g("stop_reduce_reason"));
+    if (cAll) return cAll;
     return "其他";
   }
   if (sourceType === "overdue_purchase") {
     const onTime = g("_purchased_on_time");
     if (onTime === "是") return "规范用药";
-    // 未按时购药：根因含停药/转药/换方案 → 脱落；其余（延迟未购等）→ 不规范
+    // 未按时购药：根因含停药/转药/换方案 → 脱落；联系类先判（强信号→脱落，一般→联系失败）；其余（延迟未购等）→ 不规范
     const reason = g("stop_reduce_reason") || g("_reduce_reason") || "";
+    const cOv = classifyContactOutcome(reason);
+    if (cOv) return cOv;
     if (isStopText(reason) || /换用|改用|使用其他|其他药|流失|脱落/.test(reason)) return "脱落停药";
     if (onTime === "否" || reason) return "不规范用药";
     return "其他";
@@ -601,7 +658,7 @@ function projectFields(sourceType, row, colmap, headers) {
 if (typeof window !== "undefined") {
   window.Mapping = { CANONICAL_FIELDS, STATUS_TAXONOMY, SUBTYPE_TAXONOMY, SIGNATURES,
     KEYWORD_RULES, KEYWORD_RULES_MULTI, normHeader, _cell, _gtext,
-    isPlaceholder, isStopOption, isStopText,
+    isPlaceholder, isStopOption, isStopText, classifyContactOutcome,
     CUSTOM_FOLLOWUP_RULES, parseCustomFollowup, customExtract, isLowInfoValue,
     REASON_BUCKETS, REASON_BUCKET_OTHER, REASON_BUCKET_SKIP, REASON_BUCKET_SHORT,
     stripReasonPrefix, classifyReason,

@@ -11,6 +11,7 @@
     --good:#0f9d6b; --good-bg:#e7f7f0;
     --bad:#e03131; --bad-bg:#fdecec;
     --warn:#e8590c; --warn-bg:#fff1e8;
+    --info:#1c7ed6; --info-bg:#e7f2fd;
     --gray:#868e96; --gray-bg:#f1f3f5;
     /* 内容区基准宽度：页头与主体共用，保证两者左右对齐 */
     --wrap:1560px; --pad-x:24px;
@@ -120,6 +121,7 @@
   .c-规范用药 .n{color:var(--good)} .c-规范用药 .dot{background:var(--good)}
   .c-不规范用药 .n{color:var(--bad)} .c-不规范用药 .dot{background:var(--bad)}
   .c-脱落停药 .n{color:var(--warn)} .c-脱落停药 .dot{background:var(--warn)}
+  .c-联系失败 .n{color:var(--info)} .c-联系失败 .dot{background:var(--info)}
   .c-其他 .n{color:var(--gray)} .c-其他 .dot{background:var(--gray)}
   .global-summary{background:linear-gradient(135deg,#f4f8ff,#eaf0ff);border:1px solid var(--line);
     border-radius:14px;padding:16px 18px;margin:0 0 6px;box-shadow:0 2px 12px rgba(40,80,200,.07)}
@@ -136,6 +138,7 @@
   .g-card.规范用药{border-left-color:var(--good)} .g-card.规范用药 .g-num{color:var(--good)}
   .g-card.不规范用药{border-left-color:var(--bad)} .g-card.不规范用药 .g-num{color:var(--bad)}
   .g-card.脱落停药{border-left-color:var(--warn)} .g-card.脱落停药 .g-num{color:var(--warn)}
+  .g-card.联系失败{border-left-color:var(--info)} .g-card.联系失败 .g-num{color:var(--info)}
   .g-card.其他{border-left-color:var(--gray)} .g-card.其他 .g-num{color:var(--gray)}
   .g-card.src{border-left-color:#7c8cf0}
   .g-card.task.done{border-left-color:var(--good)} .g-card.task.done .g-num{color:var(--good)}
@@ -323,6 +326,7 @@
   .tag.规范用药{background:var(--good-bg);color:var(--good)}
   .tag.不规范用药{background:var(--bad-bg);color:var(--bad)}
   .tag.脱落停药{background:var(--warn-bg);color:var(--warn)}
+  .tag.联系失败{background:var(--info-bg);color:var(--info)}
   .tag.其他{background:var(--gray-bg);color:var(--gray)}
   .tag.sub{background:var(--bad-bg);color:var(--bad)}
   td.remarks{white-space:pre-wrap;max-width:460px;color:#374151}
