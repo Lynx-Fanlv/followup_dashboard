@@ -636,8 +636,10 @@ function updateFilterInfo() {
 
 /* ============ 分析小结（文字版，可一键复制） ============ */
 // 数据范围 = 当前筛选结果，与「导出明细」「下载快照」共用同一套 filter_records，口径完全一致。
-// 每个品种自成一段，段内给出用药状态各态条数（规范/不规范/脱落/联系失败/其他），并追加该品种「脱落停药」的根本原因分布
-// （与「停药／减量根本原因」卡片同口径：仅统计任务状态＝已完成，且剔除误入原因列的非停减描述）。
+// 每个品种自成一段，段内给出用药状态各态条数（规范/不规范/脱落/联系失败/其他），
+// 并追加两条细分：本品种「不规范用药」的类型分布、本品种「脱落停药」的根本原因分布。
+// · 不规范类型：与段首「不规范用药 N 条」同口径（全量，不按任务状态过滤——状态本身已由结构化列判定）；
+// · 脱落原因：与「停药／减量根本原因」卡片同口径（仅统计任务状态＝已完成，且剔除误入原因列的非停减描述）。
 // 首行按「任务状态」拆分（已完成 + 其余状态各自单列，如忽略 / 已改期 / 待执行），**恒为当前筛选全量**，作为整体背景；
 // 品种段落只写「用户勾选的品种」——一次导入几十个品种时，全量铺开会把卡片撑到几千像素。
 // 未勾选品种时显示「XX品种」的格式示例（复制按钮同时禁用，避免把示例文字当数据外发）。
@@ -668,6 +670,23 @@ function reportDrugBlock(drug, recs) {
     "共随访 " + recs.length + " 条，"
       + TAXONOMY.map(s => s + " " + (st[s] || 0) + " 条").join("，") + "。",
   ];
+  // 「不规范用药」的类型分布：写法与下面脱落原因保持一致——全标注时直接列，
+  // 有缺口时交代分母，一条类型都没标时如实说明，读者不会以为统计漏了。
+  const irr = recs.filter(r => r.medication_status === "不规范用药");
+  if (irr.length) {
+    const tagged = irr.filter(r => r.irregularity_subtype);
+    const bt = Object.entries(countBy(tagged, r => r.irregularity_subtype))
+      .sort((a, b) => b[1] - a[1]);
+    const pairI = ([k, v]) => k + " " + v + " 条";
+    if (!bt.length) {
+      lines.push("其中不规范用药 " + irr.length + " 条，均未标注类型。");
+    } else if (tagged.length === irr.length) {
+      lines.push("其中不规范用药类型：" + bt.map(pairI).join("，") + "。");
+    } else {
+      lines.push("其中不规范用药 " + irr.length + " 条的类型（已标注 " + tagged.length + " 条）："
+        + bt.map(pairI).join("，") + "。");
+    }
+  }
   const drop = recs.filter(r => r.medication_status === "脱落停药");
   if (drop.length) {
     const counted = drop.filter(isReasonCounted);
@@ -714,21 +733,28 @@ function reportSelection(recs) {
 // 示例正文故意用**真实的格式化函数**拼出来（而不是手写死文本）：
 // 段格式、状态顺序、原因措辞以后演进时，示例会自动跟着变，不会变成"照着旧版排的假样子"。
 function reportDemoRecs() {
-  const mk = (drug, status, n, reason, task) => Array.from({ length: n }, () => ({
+  const mk = (drug, status, n, reason, task, sub) => Array.from({ length: n }, () => ({
     drug_product: drug, medication_status: status, task_status: task || "已完成",
-    reason_bucket: reason || "", followup_time: "2026-09-10 10:00",
+    reason_bucket: reason || "", irregularity_subtype: sub || null,
+    followup_time: "2026-09-10 10:00",
   }));
   const A = "XX品种A", B = "XX品种B";
   return [
     // A 共 40 条：规范 26 / 不规范 8 / 脱落 4 / 联系失败 1 / 其他 1
     ...mk(A, "规范用药", 22), ...mk(A, "规范用药", 4, "", "待执行"),
-    ...mk(A, "不规范用药", 8), ...mk(A, "联系失败", 1), ...mk(A, "其他", 1),
+    ...mk(A, "不规范用药", 3, "", "已完成", "延迟/未按时用药"),
+    ...mk(A, "不规范用药", 2, "", "已完成", "自行减量"),
+    ...mk(A, "不规范用药", 2, "", "已完成", "医嘱减量"),
+    ...mk(A, "不规范用药", 1, "", "已完成", "其他不规范"),
+    ...mk(A, "联系失败", 1), ...mk(A, "其他", 1),
     ...mk(A, "脱落停药", 2, "疾病稳定／疗程结束"),
     ...mk(A, "脱落停药", 1, "医嘱调整（停药／减量／推迟）"),
     ...mk(A, "脱落停药", 1, "经济／费用"),
     // B 共 20 条：规范 15 / 不规范 3 / 脱落 1 / 联系失败 1
     ...mk(B, "规范用药", 10), ...mk(B, "规范用药", 5, "", "待执行"),
-    ...mk(B, "不规范用药", 3), ...mk(B, "联系失败", 1),
+    ...mk(B, "不规范用药", 2, "", "已完成", "延迟/未按时用药"),
+    ...mk(B, "不规范用药", 1, "", "已完成", "自行减量"),
+    ...mk(B, "联系失败", 1),
     ...mk(B, "脱落停药", 1, "疾病稳定／疗程结束"),
   ];
 }
