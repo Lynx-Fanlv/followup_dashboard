@@ -206,8 +206,60 @@ function pushRemarkPart(parts, v) {
   parts.push(v);
 }
 
+/* ============ 「任务状态」列错位自动纠偏 ============ */
+// 实测（2026-11-25）：上游「随访任务导出」新版模板加了「药房名称」列之后，表头写的是
+// 任务状态 / 药房名称，数据体却把这两列填反了——A 列全是药房名，B 列才是
+// 已完成 / 临期待执行 / 执行失败…。照表头直读时 task_status 整列变成药房名，
+// 「已完成任务」恒为 0，于是「停药／减量根本原因」卡片永远显示「暂无」，
+// 小结首行也会把药房名当成任务状态逐条分列。
+// 这里只按**数据特征**做一次严格判定，成立时交换这两个列索引（不改任何判定规则）：
+//   · task_status 列命中状态词的比例 < 5%（它基本不是状态列）；
+//   · 另有一列命中比例 ≥ 60% 且去重值 ≤ 12 个（枚举特征）。
+// 正常文件里 A 列本身就是状态，第一条就不成立，永不触发。
+const RE_TASK_STATUS_VALUE = /已完成|待执行|未开始|进行中|待跟进|已忽略|忽略|已改期|已延期|已取消|执行失败|随访失败|超期|逾期|未完成|失效|作废|待分配|待处理|待审核/;
+function _statusColProfile(rows, idx) {
+  const uniq = new Set();
+  let n = 0, hit = 0;
+  for (let i = 0; i < rows.length && n < 500; i++) {
+    const v = cellStr(rows[i] ? rows[i][idx] : null);
+    if (!v) continue;
+    n++; uniq.add(v);
+    if (RE_TASK_STATUS_VALUE.test(v)) hit++;
+  }
+  return { n, ratio: n ? hit / n : 0, uniq: uniq.size };
+}
+function fixTaskStatusMisalign(rows, colmap, cols) {
+  const ts = colmap.task_status;
+  if (ts == null || Array.isArray(ts) || !rows.length) return colmap;
+  const own = _statusColProfile(rows, ts);
+  if (own.n < 20 || own.ratio >= 0.05) return colmap;
+  // 候选列不能是别的字段在用的列（否则交换会把那个字段搞乱）；
+  // 「药房名称」这类被 pharmacy 占用的列例外——交换时 pharmacy 会一起跟进。
+  const taken = new Set();
+  for (const f in colmap) {
+    if (f === "task_status" || f === "pharmacy") continue;
+    for (const c of asList(colmap[f])) if (c != null) taken.add(Number(c));
+  }
+  let best = null;
+  const total = cols ? cols.length : 0;
+  for (let idx = 0; idx < total; idx++) {
+    if (idx === ts || taken.has(idx)) continue;
+    const p = _statusColProfile(rows, idx);
+    if (p.n < 20 || p.ratio < 0.6 || p.uniq > 12) continue;
+    if (!best || p.ratio > best.p.ratio) best = { idx, p };
+  }
+  if (!best) return colmap;
+  const out = Object.assign({}, colmap);
+  out.task_status = best.idx;
+  // 被换出去的那列本就是药房来源（「药房名称」），让 pharmacy 接管，避免反而丢药房名
+  for (const c of asList(out.pharmacy)) {
+    if (Number(c) === best.idx) { out.pharmacy = ts; break; }
+  }
+  return out;
+}
+
 function normalizeRows(rows, cols, sourceFile, sheetName) {
-  const colmap = mapColumns(cols);
+  const colmap = fixTaskStatusMisalign(rows, mapColumns(cols), cols);
   const fileSource = detectSource(cols, colmap);
   const records = [];
   for (let i = 0; i < rows.length; i++) {
@@ -352,7 +404,7 @@ function desensitize(rec, namePlain = false, phonePlain = false) {
 }
 
 if (typeof window !== "undefined") {
-  window.Pipeline = { mapColumns, detectSource, detectHeaderRow, normalizeRows,
+  window.Pipeline = { mapColumns, fixTaskStatusMisalign, detectSource, detectHeaderRow, normalizeRows,
     loadWorkbook, processFiles, desensitize, cellStr, fmtDateTime };
 }
 })();
