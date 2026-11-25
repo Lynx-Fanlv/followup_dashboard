@@ -497,6 +497,27 @@
       </div>
     </div>
 
+    <!-- 分析小结：内容 = 当前筛选结果，可一键复制成纯文字（快照中不提供本功能） -->
+    <div class="report-card" id="reportCard">
+      <div class="rc-head">
+        <span class="rc-title">分析小结</span>
+        <span class="rc-scope" id="reportScope"></span>
+        <span class="spacer"></span>
+        <!-- 品种多选：小结正文只写选中的品种（可多选）；未选时正文显示「XX品种」示例 -->
+        <div class="ms ms-right" id="reportMs">
+          <button class="ms-btn" type="button" id="reportMsBtn" disabled
+            title="小结正文只写选中的品种（可多选）；首行恒为当前筛选全量">品种小结：请选择 <span class="ms-caret">▾</span></button>
+          <div class="ms-panel hidden" id="reportMsPanel">
+            <div class="ms-tools"><span class="ms-count" id="reportMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act" data-act="none">清空</a></div>
+            <div class="ms-list" id="reportMsList"></div>
+          </div>
+        </div>
+        <button class="btn sm rc-copy" id="reportCopyBtn" type="button" disabled
+          title="复制这段小结文字，可直接粘贴到汇报材料或聊天窗口">一键复制</button>
+      </div>
+      <pre class="rc-body" id="reportBody"></pre>
+    </div>
+
     <!-- 筛选区 -->
     <div class="filter-section">
       <div class="fs-label">用药状态筛选<span class="fs-hint">点选下方卡片筛选，再次点击取消；可与右侧条件叠加</span></div>
@@ -558,26 +579,6 @@
     </div>
     <div class="filterinfo" id="filterInfo"></div>
 
-    <!-- 分析小结：内容 = 当前筛选结果，可一键复制成纯文字（快照中不提供本功能） -->
-    <div class="report-card" id="reportCard">
-      <div class="rc-head">
-        <span class="rc-title">分析小结</span>
-        <span class="rc-scope" id="reportScope"></span>
-        <span class="spacer"></span>
-        <!-- 品种多选：小结正文只写选中的品种（可多选）；未选时正文显示「XX品种」示例 -->
-        <div class="ms ms-right" id="reportMs">
-          <button class="ms-btn" type="button" id="reportMsBtn" disabled
-            title="小结正文只写选中的品种（可多选）；首行恒为当前筛选全量">品种小结：请选择 <span class="ms-caret">▾</span></button>
-          <div class="ms-panel hidden" id="reportMsPanel">
-            <div class="ms-tools"><span class="ms-count" id="reportMsCount"></span><a class="ms-act" data-act="all">全选</a><a class="ms-act" data-act="none">清空</a></div>
-            <div class="ms-list" id="reportMsList"></div>
-          </div>
-        </div>
-        <button class="btn sm rc-copy" id="reportCopyBtn" type="button" disabled
-          title="复制这段小结文字，可直接粘贴到汇报材料或聊天窗口">一键复制</button>
-      </div>
-      <pre class="rc-body" id="reportBody"></pre>
-    </div>
 
     <!-- 明细头 -->
     <div class="detail-head">
